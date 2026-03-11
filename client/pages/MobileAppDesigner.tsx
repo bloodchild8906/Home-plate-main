@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   faArrowsToCircle,
   faBars,
@@ -102,6 +102,8 @@ import {
   Panel,
   SpacingGroup,
 } from "@/components/mobile-builder/designer-primitives";
+import { BlockDataBindingFields } from "@/components/mobile-builder/block-data-binding-fields";
+import { BuilderPhonePreview } from "@/components/mobile-builder/builder-phone-preview";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -133,12 +135,18 @@ import {
 import { BrandMark } from "@/components/brand-mark";
 import {
   applyServerEndpointToFunction,
-  buildApiFunctionRequest,
+  executeApiFunction,
   findAuthBlock,
   findServerApiEndpoint,
   listAuthBlocks,
 } from "@/lib/builder-api";
 import { getInitials, readImageFileAsDataUrl, readTextFile } from "@/lib/asset-utils";
+import {
+  createTemplateContext,
+  getValueAtPath,
+  interpolateTemplate,
+  interpolateTemplateList,
+} from "@/lib/builder-data";
 import { getContrastTextColor, mixHex } from "@/lib/color-utils";
 import {
   buildUploadedFontFamily,
@@ -168,6 +176,7 @@ import {
   type BuilderBrand,
   type BuilderBlock,
   type BuilderBlockActionKind,
+  type BuilderBlockDataBinding,
   type BuilderLayoutAlign,
   type BuilderLayoutDirection,
   type BuilderLayoutDisplay,
@@ -772,39 +781,14 @@ const VOID_HTML_TAGS = new Set([
 
 const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
+type BuilderApiResultState = {
+  status: "idle" | "loading" | "success" | "error";
+  data?: unknown;
+  error?: string;
+};
+
 function isInteractiveBlock(block: BuilderBlock) {
   return block.events.tap.kind !== "none";
-}
-
-function parseRequestHeaders(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return {} as Record<string, string>;
-  }
-
-  if (trimmed.startsWith("{")) {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    return Object.entries(parsed).reduce<Record<string, string>>((headers, [key, headerValue]) => {
-      if (typeof headerValue === "string" && key.trim()) {
-        headers[key.trim()] = headerValue;
-      }
-      return headers;
-    }, {});
-  }
-
-  return trimmed.split("\n").reduce<Record<string, string>>((headers, line) => {
-    const separator = line.indexOf(":");
-    if (separator === -1) {
-      return headers;
-    }
-
-    const key = line.slice(0, separator).trim();
-    const headerValue = line.slice(separator + 1).trim();
-    if (key && headerValue) {
-      headers[key] = headerValue;
-    }
-    return headers;
-  }, {});
 }
 
 function usesHtmlItems(tag: string) {
@@ -1041,6 +1025,7 @@ export default function MobileAppDesigner() {
   const [isLoadingServerApiEndpoints, setIsLoadingServerApiEndpoints] = useState(true);
   const [serverApiEndpointsError, setServerApiEndpointsError] = useState("");
   const [toolboxQuery, setToolboxQuery] = useState("");
+  const [boundApiResults, setBoundApiResults] = useState<Record<string, BuilderApiResultState>>({});
   const [previewWidth, setPreviewWidth] = useState(0);
   const previewViewportRef = useRef<HTMLElement | null>(null);
 
@@ -1146,12 +1131,120 @@ export default function MobileAppDesigner() {
     app?.brand.fontPresetId,
   ]);
 
+  const page = app?.pages.find((item) => item.id === selectedPageId) ?? app?.pages[0];
+  const block = page?.blocks.find((item) => item.id === selectedBlockId) ?? page?.blocks[0];
+  const boundDataSignature = useMemo(
+    () =>
+      JSON.stringify({
+        pageId: page?.id ?? "",
+        bindings:
+          page?.blocks.map((item) => ({
+            blockId: item.id,
+            sourceType: item.dataBinding.sourceType,
+            functionId: item.dataBinding.functionId,
+            responsePath: item.dataBinding.responsePath,
+            mode: item.dataBinding.mode,
+            itemAlias: item.dataBinding.itemAlias,
+            itemTemplate: item.dataBinding.itemTemplate,
+          })) ?? [],
+        apiFunctions:
+          app?.apiFunctions.map((fn) => ({
+            id: fn.id,
+            endpointId: fn.endpointId,
+            endpoint: fn.endpoint,
+            method: fn.method,
+            requiresAuth: fn.requiresAuth,
+            authBlockId: fn.authBlockId,
+            headers: fn.headers,
+            properties: fn.properties,
+          })) ?? [],
+      }),
+    [app?.apiFunctions, page],
+  );
+
+  useEffect(() => {
+    if (!app || !page) {
+      setBoundApiResults({});
+      return;
+    }
+
+    const functionIds = Array.from(
+      new Set(
+        page.blocks
+          .filter(
+            (item) =>
+              item.dataBinding.sourceType === "api" &&
+              item.dataBinding.functionId.trim().length > 0,
+          )
+          .map((item) => item.dataBinding.functionId.trim()),
+      ),
+    );
+
+    if (functionIds.length === 0) {
+      setBoundApiResults({});
+      return;
+    }
+
+    let cancelled = false;
+    setBoundApiResults((current) =>
+      functionIds.reduce<Record<string, BuilderApiResultState>>((states, functionId) => {
+        const existing = current[functionId];
+        states[functionId] =
+          existing?.status === "success"
+            ? existing
+            : { status: "loading" };
+        return states;
+      }, {}),
+    );
+
+    void (async () => {
+      const nextEntries = await Promise.all(
+        functionIds.map(async (functionId) => {
+          const apiFunction = app.apiFunctions.find((item) => item.id === functionId);
+          if (!apiFunction) {
+            return [functionId, { status: "error", error: "Selected API function no longer exists" }] as const;
+          }
+          if (apiFunction.method !== "GET") {
+            return [
+              functionId,
+              {
+                status: "error",
+                error: "Only GET API functions can be used as block data sources",
+              },
+            ] as const;
+          }
+
+          try {
+            const result = await executeApiFunction(app, apiFunction, serverApiEndpoints);
+            return [functionId, { status: "success", data: result.data }] as const;
+          } catch (error) {
+            return [
+              functionId,
+              {
+                status: "error",
+                error: error instanceof Error ? error.message : "Failed to load API data",
+              },
+            ] as const;
+          }
+        }),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      setBoundApiResults(Object.fromEntries(nextEntries));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [app, page, serverApiEndpoints, boundDataSignature]);
+
   if (!app) {
     return <Navigate to="/builder" replace />;
   }
 
-  const page = app.pages.find((item) => item.id === selectedPageId) ?? app.pages[0];
-  const block = page?.blocks.find((item) => item.id === selectedBlockId) ?? page?.blocks[0];
   const preset = PHONE_PRESETS.find((item) => item.id === screenSize) ?? PHONE_PRESETS[1];
   const deviceWidth = preset.width + 24;
   const deviceHeight = preset.height + 56;
@@ -1189,6 +1282,19 @@ export default function MobileAppDesigner() {
         : null,
     [app, selectedApiFunction],
   );
+  const selectedBlockBindingState = block?.dataBinding.functionId
+    ? boundApiResults[block.dataBinding.functionId]
+    : undefined;
+  const selectedBlockBindingMessage =
+    block?.dataBinding.sourceType === "api"
+      ? selectedBlockBindingState?.status === "loading"
+        ? "Loading linked API data for this block."
+        : selectedBlockBindingState?.status === "error"
+          ? selectedBlockBindingState.error || "Failed to load linked data."
+          : selectedBlockBindingState?.status === "success"
+            ? "Linked API data loaded for preview."
+            : "Choose an API function to bind this block."
+      : "";
   const filteredHtmlTags = useMemo(() => {
     const query = toolboxQuery.trim().toLowerCase();
     if (!query) {
@@ -1235,6 +1341,15 @@ export default function MobileAppDesigner() {
     updateCurrentPage((current) => ({
       ...current,
       blocks: current.blocks.map((item) => (item.id === block.id ? updater(item) : item)),
+    }));
+  };
+
+  const updateSelectedBlockDataBinding = (
+    updater: (binding: BuilderBlockDataBinding) => BuilderBlockDataBinding,
+  ) => {
+    updateSelectedBlock((item) => ({
+      ...item,
+      dataBinding: updater(item.dataBinding),
     }));
   };
 
@@ -1491,55 +1606,15 @@ export default function MobileAppDesigner() {
     setPendingActionId(item.id);
 
     try {
-      const endpointMeta = findServerApiEndpoint(apiFunction, serverApiEndpoints);
-      const effectiveRequiresAuth =
-        endpointMeta?.requiresAuth ?? apiFunction.requiresAuth;
-      const authBlock = effectiveRequiresAuth
-        ? findAuthBlock(app, apiFunction.authBlockId)
-        : null;
-
-      if (effectiveRequiresAuth && !authBlock) {
-        throw new Error(
-          "Add an Auth block before calling this protected API endpoint",
-        );
-      }
-
-      const headers = parseRequestHeaders(apiFunction.headers);
-      const requestData = buildApiFunctionRequest(app, apiFunction, endpointMeta);
-      if (requestData.missingRequired.length > 0) {
-        throw new Error(
-          `Set values for required API params: ${requestData.missingRequired.join(", ")}`,
-        );
-      }
-
-      const request: RequestInit = {
-        method: apiFunction.method,
-        headers,
-        credentials: effectiveRequiresAuth ? "include" : "same-origin",
-      };
-
-      if (
-        apiFunction.method !== "GET" &&
-        apiFunction.method !== "DELETE" &&
-        Object.keys(requestData.bodyPayload).length > 0
-      ) {
-        request.body = JSON.stringify(requestData.bodyPayload);
-        if (!Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
-          headers["Content-Type"] = "application/json";
-        }
-      }
-
-      const response = await fetch(requestData.endpoint, request);
-      const responseText = (await response.text()).trim();
-      if (!response.ok) {
-        throw new Error(responseText || `Request failed with status ${response.status}`);
-      }
-
-      const detail = responseText.slice(0, 140);
+      const result = await executeApiFunction(app, apiFunction, serverApiEndpoints);
+      const detail =
+        typeof result.data === "string"
+          ? result.data.slice(0, 140)
+          : result.text.slice(0, 140);
       toast.success(
         action.successMessage.trim()
           || apiFunction.successMessage.trim()
-          || `${apiFunction.method} ${requestData.endpoint} completed`,
+          || `${apiFunction.method} ${result.endpoint} completed`,
         detail ? { description: detail } : undefined,
       );
     } catch (error) {
@@ -1564,7 +1639,11 @@ export default function MobileAppDesigner() {
     setSelectedBlockId(next.id);
   };
 
-  const renderPreview = useMemo(() => (item: BuilderBlock, selected: boolean) => renderBlock(item, app, selected), [app]);
+  const renderPreview = useMemo(
+    () => (item: BuilderBlock, selected: boolean) =>
+      renderBlock(item, app, selected, boundApiResults),
+    [app, boundApiResults],
+  );
 
   return (
     <AppShell
@@ -1663,6 +1742,7 @@ export default function MobileAppDesigner() {
                                 layout: { ...entry.layout },
                                 attributes: { ...entry.attributes },
                                 events: { tap: { ...entry.events.tap } },
+                                dataBinding: { ...entry.dataBinding },
                               })),
                             };
                             updateCurrentApp((current) => ({ ...current, pages: [...current.pages, copy] }));
@@ -2429,122 +2509,77 @@ export default function MobileAppDesigner() {
 
           <div className="overflow-hidden">
             <div className="flex justify-center" style={{ minHeight: previewCanvasHeight }}>
-              <div
-                style={{
-                  width: deviceWidth,
-                  height: deviceHeight,
-                  transform: `scale(${previewScale})`,
-                  transformOrigin: "top center",
-                }}
-              >
-                <div className="rounded-[3.2rem] bg-slate-950 p-3 shadow-[0_40px_120px_-40px_rgba(15,23,42,0.72)]">
-                  <div className="overflow-hidden rounded-[2.5rem] bg-white transition-all" style={{ width: preset.width, fontFamily: app.brand.fontFamily }}>
-                    {scopedPreviewCss ? <style>{scopedPreviewCss}</style> : null}
-                    <div className="flex h-8 items-center justify-center bg-slate-950">
-                      <div className="h-1.5 w-24 rounded-full bg-slate-700" />
-                    </div>
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={page.id}
-                        initial={{ opacity: 0, x: 24 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -18 }}
-                        transition={{ duration: 0.25, ease: "easeOut" }}
-                      >
-                        <ScrollArea style={{ height: preset.height }}>
-                          <div data-builder-preview={app.id} className="space-y-3 p-3" style={previewSurfaceStyle}>
-                            <div
-                              className="rounded-[1.6rem] p-4 text-white"
-                              style={previewHeroStyle}
-                            >
-                              <div className="flex items-center gap-3">
-                                <BrandMark
-                                  image={app.brand.logoImage}
-                                  text={app.brand.logo}
-                                  label={`${app.brand.appName} logo`}
-                                  primary={app.brand.primary}
-                                  accent={app.brand.accent}
-                                  className="h-11 w-11 rounded-2xl"
-                                  imageClassName="object-contain bg-white p-1.5"
-                                  textClassName="text-xs"
-                                />
-                                <div className="min-w-0">
-                                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70">
-                                    {app.brand.domain}
-                                  </div>
-                                  <div className="truncate text-lg font-black tracking-tight">{app.brand.appName}</div>
-                                </div>
-                              </div>
-                              <div className="mt-4 flex items-center justify-between text-xs">
-                                <span className="text-white/70">Current page</span>
-                                <span className="font-bold">{page.name}</span>
-                              </div>
-                            </div>
+              <AnimatePresence mode="wait">
+                <BuilderPhonePreview
+                  app={app}
+                  pageName={page.name}
+                  preset={preset}
+                  previewScale={previewScale}
+                  previewCanvasHeight={previewCanvasHeight}
+                  previewSurfaceStyle={previewSurfaceStyle}
+                  previewHeroStyle={previewHeroStyle}
+                  scopedPreviewCss={scopedPreviewCss}
+                >
+                  {page.blocks.map((item) => (
+                    <ContextMenu key={item.id}>
+                      <ContextMenuTrigger>
+                        <div
+                          className={cn(
+                            isInteractiveBlock(item) && preview && "cursor-pointer",
+                            pendingActionId === item.id && "opacity-70",
+                          )}
+                          draggable={!preview}
+                          onDragStart={() => setDragBlockId(item.id)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => {
+                            if (!dragBlockId) return;
+                            updateCurrentPage((current) => ({ ...current, blocks: reorderById(current.blocks, dragBlockId, item.id) }));
+                            setDragBlockId(null);
+                          }}
+                          onClick={() => {
+                            if (!preview) {
+                              setSelectedBlockId(item.id);
+                              return;
+                            }
 
-                            {page.blocks.map((item) => (
-                              <ContextMenu key={item.id}>
-                                <ContextMenuTrigger>
-                                  <div
-                                    className={cn(
-                                      isInteractiveBlock(item) && preview && "cursor-pointer",
-                                      pendingActionId === item.id && "opacity-70",
-                                    )}
-                                    draggable={!preview}
-                                    onDragStart={() => setDragBlockId(item.id)}
-                                    onDragOver={(event) => event.preventDefault()}
-                                    onDrop={() => {
-                                      if (!dragBlockId) return;
-                                      updateCurrentPage((current) => ({ ...current, blocks: reorderById(current.blocks, dragBlockId, item.id) }));
-                                      setDragBlockId(null);
-                                    }}
-                                    onClick={() => {
-                                      if (!preview) {
-                                        setSelectedBlockId(item.id);
-                                        return;
-                                      }
-
-                                      void triggerBlockEvent(item);
-                                    }}
-                                  >
-                                    {renderPreview(item, !preview && item.id === block?.id)}
-                                  </div>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent>
-                                  <ContextMenuLabel>Block Actions</ContextMenuLabel>
-                                  <ContextMenuItem onClick={() => {
-                                    const copy = {
-                                      ...item,
-                                      id: uid("b"),
-                                      layout: { ...item.layout },
-                                      attributes: { ...item.attributes },
-                                      events: { tap: { ...item.events.tap } },
-                                    };
-                                    updateCurrentPage((current) => ({ ...current, blocks: [...current.blocks, copy] }));
-                                  }}>
-                                    <Copy className="mr-2 h-4 w-4" />
-                                    Duplicate block
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => {
-                                    const remaining = page.blocks.filter((entry) => entry.id !== item.id);
-                                    updateCurrentPage((current) => ({ ...current, blocks: current.blocks.filter((entry) => entry.id !== item.id) }));
-                                    if (selectedBlockId === item.id) {
-                                      setSelectedBlockId(remaining[0]?.id ?? "");
-                                    }
-                                  }}>
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Remove block
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                      </motion.div>
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
+                            void triggerBlockEvent(item);
+                          }}
+                        >
+                          {renderPreview(item, !preview && item.id === block?.id)}
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuLabel>Block Actions</ContextMenuLabel>
+                        <ContextMenuItem onClick={() => {
+                          const copy = {
+                            ...item,
+                            id: uid("b"),
+                            layout: { ...item.layout },
+                            attributes: { ...item.attributes },
+                            events: { tap: { ...item.events.tap } },
+                            dataBinding: { ...item.dataBinding },
+                          };
+                          updateCurrentPage((current) => ({ ...current, blocks: [...current.blocks, copy] }));
+                        }}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          Duplicate block
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => {
+                          const remaining = page.blocks.filter((entry) => entry.id !== item.id);
+                          updateCurrentPage((current) => ({ ...current, blocks: current.blocks.filter((entry) => entry.id !== item.id) }));
+                          if (selectedBlockId === item.id) {
+                            setSelectedBlockId(remaining[0]?.id ?? "");
+                          }
+                        }}>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Remove block
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  ))}
+                </BuilderPhonePreview>
+              </AnimatePresence>
             </div>
           </div>
         </section>
@@ -2581,6 +2616,14 @@ export default function MobileAppDesigner() {
                         placeholder={"{\n  \"href\": \"#\",\n  \"target\": \"_blank\",\n  \"title\": \"Custom element\"\n}"}
                       />
                     </Field>
+                    <Field label="Inner HTML markup">
+                      <Textarea
+                        className="min-h-[140px] font-mono text-xs"
+                        value={block.htmlContent ?? ""}
+                        onChange={(event) => updateSelectedBlock((item) => ({ ...item, htmlContent: event.target.value }))}
+                        placeholder={"<strong>{{title}}</strong>\n<span>{{description}}</span>"}
+                      />
+                    </Field>
                   </>
                 ) : null}
                 {["quicklinks", "rewardcatalog", "wallet", "profile"].includes(block.type) ? (
@@ -2608,6 +2651,14 @@ export default function MobileAppDesigner() {
                     <Input type="number" min="1" value={block.points ?? 0} onChange={(event) => updateSelectedBlock((item) => ({ ...item, points: Number(event.target.value) }))} />
                   </Field>
                 ) : null}
+                <BlockDataBindingFields
+                  block={block}
+                  apiFunctions={app.apiFunctions}
+                  serverApiEndpoints={serverApiEndpoints}
+                  status={selectedBlockBindingState?.status}
+                  statusMessage={selectedBlockBindingMessage}
+                  onChange={updateSelectedBlockDataBinding}
+                />
                 <div className="rounded-3xl border border-border/60 bg-muted/15 p-4">
                   <div className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Interactions</div>
                   <div className="space-y-4">
@@ -2935,7 +2986,100 @@ function createFlowLayoutStyle(layout: BuilderBlockLayout, fallback: CSSProperti
   return next;
 }
 
-function renderHtmlBlock(block: BuilderBlock, shellProps: { id?: string; className?: string; style: CSSProperties }, app: BuilderAppModel) {
+function isListStyleBlock(block: BuilderBlock) {
+  return ["quicklinks", "rewardcatalog", "wallet", "profile"].includes(block.type)
+    || (block.type === "html" && usesHtmlItems(sanitizeHtmlTag(block.htmlTag)));
+}
+
+function resolveBlockFromApiData(
+  block: BuilderBlock,
+  source: unknown,
+  response: unknown,
+  index?: number,
+) {
+  const primarySource = Array.isArray(source) ? source[0] : source;
+  const context = createTemplateContext(
+    primarySource,
+    response,
+    block.dataBinding.itemAlias,
+    index,
+  );
+  const listSource = Array.isArray(source) ? source : null;
+  const nextPoints = block.points === undefined
+    ? undefined
+    : Number(interpolateTemplate(String(block.points), context)) || block.points;
+  const nextItems = listSource && isListStyleBlock(block)
+    ? listSource
+        .map((entry, itemIndex) =>
+          interpolateTemplate(
+            block.dataBinding.itemTemplate || "{{item}}",
+            createTemplateContext(
+              entry,
+              response,
+              block.dataBinding.itemAlias,
+              itemIndex,
+            ),
+          ).trim(),
+        )
+        .filter(Boolean)
+    : interpolateTemplateList(block.items, context).filter(Boolean);
+
+  return {
+    ...block,
+    text: interpolateTemplate(block.text ?? "", context),
+    helper: interpolateTemplate(block.helper ?? "", context),
+    items: nextItems,
+    points: nextPoints,
+    htmlAttributes: interpolateTemplate(block.htmlAttributes ?? "", context),
+    htmlContent: interpolateTemplate(block.htmlContent ?? "", context),
+    attributes: {
+      ...block.attributes,
+      elementId: block.attributes.elementId
+        ? `${block.attributes.elementId}${index === undefined ? "" : `-${index + 1}`}`
+        : "",
+      className: interpolateTemplate(block.attributes.className, context),
+      style: interpolateTemplate(block.attributes.style, context),
+    },
+    dataBinding: {
+      ...block.dataBinding,
+      sourceType: "none",
+    },
+  } satisfies BuilderBlock;
+}
+
+function renderDataBindingPlaceholder(
+  block: BuilderBlock,
+  app: BuilderAppModel,
+  selected: boolean,
+  message: string,
+  tone: "default" | "error" = "default",
+) {
+  const shellStyle = createBlockShellStyle(block, app, selected);
+  return (
+    <div
+      id={block.attributes.elementId || undefined}
+      className={cn("transition-all", block.attributes.className)}
+      style={shellStyle}
+    >
+      <div
+        className={cn(
+          "rounded-2xl border px-3 py-2 text-xs leading-5",
+          tone === "error"
+            ? "border-destructive/30 bg-destructive/5 text-destructive"
+            : "border-border/60 bg-background/80 text-muted-foreground",
+        )}
+      >
+        {message}
+      </div>
+    </div>
+  );
+}
+
+function renderHtmlBlock(
+  block: BuilderBlock,
+  shellProps: { id?: string; className?: string; style: CSSProperties },
+  app: BuilderAppModel,
+) {
   const tag = sanitizeHtmlTag(block.htmlTag);
   const parsedProps = normalizeHtmlElementProps(parseHtmlAttributes(block.htmlAttributes));
   const elementProps: Record<string, unknown> = {
@@ -2958,8 +3102,12 @@ function renderHtmlBlock(block: BuilderBlock, shellProps: { id?: string; classNa
 
   const items = (block.items ?? []).filter(Boolean);
   let children: ReactNode = block.text;
+  const htmlContent = block.htmlContent?.trim() ?? "";
 
-  if (tag === "ul" || tag === "ol") {
+  if (htmlContent && !VOID_HTML_TAGS.has(tag)) {
+    elementProps.dangerouslySetInnerHTML = { __html: htmlContent };
+    children = undefined;
+  } else if (tag === "ul" || tag === "ol") {
     children = items.length > 0
       ? items.map((item) => createElement("li", { key: item }, item))
       : createElement("li", { key: "default-item" }, block.text || "List item");
@@ -2995,7 +3143,7 @@ function renderHtmlBlock(block: BuilderBlock, shellProps: { id?: string; classNa
   return <div {...shellProps}>{createElement(tag, elementProps, children)}</div>;
 }
 
-function renderBlock(block: BuilderBlock, app: BuilderAppModel, selected: boolean) {
+function renderResolvedBlock(block: BuilderBlock, app: BuilderAppModel, selected: boolean) {
   const shellStyle = createBlockShellStyle(block, app, selected);
   const shellProps = {
     id: block.attributes.elementId || undefined,
@@ -3046,6 +3194,79 @@ function renderBlock(block: BuilderBlock, app: BuilderAppModel, selected: boolea
     default:
       return null;
   }
+}
+
+function renderBlock(
+  block: BuilderBlock,
+  app: BuilderAppModel,
+  selected: boolean,
+  boundApiResults: Record<string, BuilderApiResultState>,
+) {
+  if (block.dataBinding.sourceType !== "api") {
+    return renderResolvedBlock(block, app, selected);
+  }
+
+  if (!block.dataBinding.functionId.trim()) {
+    return renderDataBindingPlaceholder(
+      block,
+      app,
+      selected,
+      "Choose an API function to bind this block.",
+    );
+  }
+
+  const result = boundApiResults[block.dataBinding.functionId];
+  if (!result || result.status === "idle" || result.status === "loading") {
+    return renderDataBindingPlaceholder(block, app, selected, "Loading linked API data...");
+  }
+
+  if (result.status === "error") {
+    return renderDataBindingPlaceholder(
+      block,
+      app,
+      selected,
+      result.error || "Failed to load linked API data.",
+      "error",
+    );
+  }
+
+  const source = getValueAtPath(result.data, block.dataBinding.responsePath || "data");
+  const isEmptyArray = Array.isArray(source) && source.length === 0;
+
+  if (source === undefined || source === null || isEmptyArray) {
+    return renderDataBindingPlaceholder(
+      block,
+      app,
+      selected,
+      block.dataBinding.emptyState || "No items available.",
+    );
+  }
+
+  if (block.dataBinding.mode === "repeat") {
+    if (!Array.isArray(source)) {
+      return renderDataBindingPlaceholder(
+        block,
+        app,
+        selected,
+        "Repeat mode expects an array at the selected response path.",
+        "error",
+      );
+    }
+
+    return source.map((entry, index) =>
+      (
+        <div key={`${block.id}-repeat-${index}`} style={{ display: "contents" }}>
+          {renderResolvedBlock(
+            resolveBlockFromApiData(block, entry, result.data, index),
+            app,
+            selected,
+          )}
+        </div>
+      ),
+    );
+  }
+
+  return renderResolvedBlock(resolveBlockFromApiData(block, source, result.data), app, selected);
 }
 
 function createBlockShellStyle(block: BuilderBlock, app: BuilderAppModel, selected: boolean) {

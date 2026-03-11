@@ -126,6 +126,37 @@ function interpolateEndpointPath(
   });
 }
 
+export function parseRequestHeaders(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {} as Record<string, string>;
+  }
+
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return Object.entries(parsed).reduce<Record<string, string>>((headers, [key, headerValue]) => {
+      if (typeof headerValue === "string" && key.trim()) {
+        headers[key.trim()] = headerValue;
+      }
+      return headers;
+    }, {});
+  }
+
+  return trimmed.split("\n").reduce<Record<string, string>>((headers, line) => {
+    const separator = line.indexOf(":");
+    if (separator === -1) {
+      return headers;
+    }
+
+    const key = line.slice(0, separator).trim();
+    const headerValue = line.slice(separator + 1).trim();
+    if (key && headerValue) {
+      headers[key] = headerValue;
+    }
+    return headers;
+  }, {});
+}
+
 export function findServerApiEndpoint(
   apiFunction: Pick<BuilderApiFunction, "endpointId" | "endpoint" | "method">,
   endpoints: BuilderServerApiEndpoint[],
@@ -372,5 +403,71 @@ export function buildApiFunctionRequest(
     endpoint: endpointPath,
     bodyPayload,
     missingRequired: [...missingRequired],
+  };
+}
+
+export async function executeApiFunction(
+  app: BuilderAppModel,
+  apiFunction: BuilderApiFunction,
+  endpoints: BuilderServerApiEndpoint[],
+) {
+  const endpointMeta = findServerApiEndpoint(apiFunction, endpoints);
+  const effectiveRequiresAuth = endpointMeta?.requiresAuth ?? apiFunction.requiresAuth;
+  const authBlock = effectiveRequiresAuth
+    ? findAuthBlock(app, apiFunction.authBlockId)
+    : null;
+
+  if (effectiveRequiresAuth && !authBlock) {
+    throw new Error("Add an Auth block before calling this protected API endpoint");
+  }
+
+  const headers = parseRequestHeaders(apiFunction.headers);
+  const requestData = buildApiFunctionRequest(app, apiFunction, endpointMeta);
+  if (requestData.missingRequired.length > 0) {
+    throw new Error(`Set values for required API params: ${requestData.missingRequired.join(", ")}`);
+  }
+
+  const request: RequestInit = {
+    method: apiFunction.method,
+    headers,
+    credentials: effectiveRequiresAuth ? "include" : "same-origin",
+  };
+
+  if (
+    apiFunction.method !== "GET" &&
+    apiFunction.method !== "DELETE" &&
+    Object.keys(requestData.bodyPayload).length > 0
+  ) {
+    request.body = JSON.stringify(requestData.bodyPayload);
+    if (!Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+      headers["Content-Type"] = "application/json";
+    }
+  }
+
+  const response = await fetch(requestData.endpoint, request);
+  const responseText = (await response.text()).trim();
+  let payload: unknown = null;
+
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText) as unknown;
+    } catch {
+      payload = responseText;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      typeof payload === "string" && payload
+        ? payload
+        : responseText || `Request failed with status ${response.status}`,
+    );
+  }
+
+  return {
+    endpoint: requestData.endpoint,
+    endpointMeta,
+    data: payload,
+    text: responseText,
   };
 }

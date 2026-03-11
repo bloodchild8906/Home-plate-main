@@ -293,6 +293,20 @@ export interface BuilderExportBlockEvents {
   tap: BuilderExportBlockEventBinding;
 }
 
+export type BuilderExportBlockDataSourceType = "none" | "api";
+
+export type BuilderExportBlockDataBindingMode = "single" | "repeat";
+
+export interface BuilderExportBlockDataBinding {
+  sourceType: BuilderExportBlockDataSourceType;
+  functionId: string;
+  responsePath: string;
+  mode: BuilderExportBlockDataBindingMode;
+  itemAlias: string;
+  itemTemplate: string;
+  emptyState: string;
+}
+
 export interface BuilderExportBlock {
   id: string;
   type: string;
@@ -303,9 +317,11 @@ export interface BuilderExportBlock {
   points?: number;
   htmlTag?: string;
   htmlAttributes?: string;
+  htmlContent?: string;
   layout: BuilderExportBlockLayout;
   attributes: BuilderExportBlockAttributes;
   events: BuilderExportBlockEvents;
+  dataBinding: BuilderExportBlockDataBinding;
 }
 
 export interface BuilderExportPage {

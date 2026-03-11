@@ -118,6 +118,20 @@ export type BuilderBlockEvents = {
   tap: BuilderBlockEventBinding;
 };
 
+export type BuilderBlockDataSourceType = "none" | "api";
+
+export type BuilderBlockDataBindingMode = "single" | "repeat";
+
+export type BuilderBlockDataBinding = {
+  sourceType: BuilderBlockDataSourceType;
+  functionId: string;
+  responsePath: string;
+  mode: BuilderBlockDataBindingMode;
+  itemAlias: string;
+  itemTemplate: string;
+  emptyState: string;
+};
+
 export type BuilderBlock = {
   id: string;
   type: BuilderBlockType;
@@ -128,9 +142,11 @@ export type BuilderBlock = {
   points?: number;
   htmlTag?: string;
   htmlAttributes?: string;
+  htmlContent?: string;
   layout: BuilderBlockLayout;
   attributes: BuilderBlockAttributes;
   events: BuilderBlockEvents;
+  dataBinding: BuilderBlockDataBinding;
 };
 
 export type BuilderPage = {
@@ -267,6 +283,18 @@ function createDefaultEventBinding(): BuilderBlockEventBinding {
   };
 }
 
+function createDefaultDataBinding(): BuilderBlockDataBinding {
+  return {
+    sourceType: "none",
+    functionId: "",
+    responsePath: "data",
+    mode: "single",
+    itemAlias: "item",
+    itemTemplate: "{{item}}",
+    emptyState: "No items available.",
+  };
+}
+
 function createDefaultApiFunctionPropertyBinding(): BuilderApiFunctionPropertyBinding {
   return {
     id: uid("prop"),
@@ -367,6 +395,19 @@ function normalizeAttributes(value?: Partial<BuilderBlockAttributes>) {
   } satisfies BuilderBlockAttributes;
 }
 
+function normalizeDataBinding(value?: Partial<BuilderBlockDataBinding>) {
+  return {
+    ...createDefaultDataBinding(),
+    sourceType: value?.sourceType === "api" ? "api" : "none",
+    functionId: value?.functionId?.trim() ?? "",
+    responsePath: value?.responsePath?.trim() || "data",
+    mode: value?.mode === "repeat" ? "repeat" : "single",
+    itemAlias: value?.itemAlias?.trim() || "item",
+    itemTemplate: value?.itemTemplate ?? "{{item}}",
+    emptyState: value?.emptyState ?? "No items available.",
+  } satisfies BuilderBlockDataBinding;
+}
+
 function isApiMethod(value: string): value is BuilderBlockApiMethod {
   return ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(value);
 }
@@ -459,7 +500,10 @@ export function createBlock(
   type: BuilderBlockType,
   overrides: Partial<BuilderBlock> = {},
 ): BuilderBlock {
-  const base: Record<BuilderBlockType, Omit<BuilderBlock, "id" | "layout" | "attributes" | "events">> = {
+  const base: Record<
+    BuilderBlockType,
+    Omit<BuilderBlock, "id" | "layout" | "attributes" | "events" | "dataBinding">
+  > = {
     heading: { type, name: "Heading", text: "New section" },
     text: {
       type,
@@ -473,6 +517,7 @@ export function createBlock(
       text: "Custom element content",
       htmlTag: "section",
       htmlAttributes: "{\n  \"title\": \"Custom section\"\n}",
+      htmlContent: "",
     },
     quicklinks: {
       type,
@@ -526,6 +571,7 @@ export function createBlock(
     layout: normalizeLayout(overrides.layout),
     attributes: normalizeAttributes(overrides.attributes),
     events: normalizeEvents(overrides.events),
+    dataBinding: normalizeDataBinding(overrides.dataBinding),
   };
 }
 
@@ -822,9 +868,11 @@ function normalizeBlock(block: Partial<BuilderBlock>, index: number) {
     points: typeof block.points === "number" ? block.points : fallback.points,
     htmlTag: block.htmlTag?.trim() || fallback.htmlTag,
     htmlAttributes: block.htmlAttributes ?? fallback.htmlAttributes,
+    htmlContent: block.htmlContent ?? fallback.htmlContent,
     layout: normalizeLayout(block.layout),
     attributes: normalizeAttributes(block.attributes),
     events: normalizeEvents(block.events),
+    dataBinding: normalizeDataBinding(block.dataBinding),
   } satisfies BuilderBlock;
 }
 
