@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { MessageCircle, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useBranding } from "@/lib/branding";
+import { BrandMark } from "@/components/brand-mark";
 
 const SUGGESTIONS = [
   "How do I publish an app?",
@@ -37,9 +38,16 @@ export function HelpWidget() {
             style={{ background: `linear-gradient(135deg, ${brand.secondary}, ${brand.primary})` }}
           >
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                <Sparkles className="h-4 w-4" />
-              </div>
+              <BrandMark
+                image={brand.logoImage}
+                text={brand.logo}
+                label={`${brand.name} logo`}
+                primary={brand.primary}
+                accent={brand.accent}
+                className="h-9 w-9 rounded-2xl"
+                imageClassName="object-contain bg-white/10 p-1.5"
+                textClassName="text-[11px]"
+              />
               <div>
                 <div className="text-sm font-bold">{brand.name} Help</div>
                 <div className="text-[11px] text-white/70">Workspace assistant</div>

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Plus, Shield, UserCog, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { type ApiResponse, type User } from "@shared/api";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,21 +15,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const DEFAULT_USERS = [
-  { id: "user-1", name: "Michael Brown", email: "michael@homeplate.app", role: "Administrator", status: "Active" },
-  { id: "user-2", name: "Ava Patel", email: "ava@homeplate.app", role: "App Designer", status: "Active" },
-  { id: "user-3", name: "Jordan Kim", email: "jordan@homeplate.app", role: "Store Operator", status: "Pending" },
-  { id: "user-4", name: "Nina Cole", email: "nina@homeplate.app", role: "Analyst", status: "Active" },
-];
+import { ROLE_LABELS } from "@/lib/navigation";
 
 export default function ManageUsers() {
   const [search, setSearch] = useState("");
-  const users = DEFAULT_USERS.filter(
+  const { data, isLoading } = useQuery<ApiResponse<User[]>>({
+    queryKey: ["users"],
+    queryFn: async () => {
+      const response = await fetch("/api/users");
+      if (!response.ok) {
+        throw new Error("Failed to load users");
+      }
+      return response.json();
+    },
+  });
+  const allUsers = data?.data ?? [];
+  const users = allUsers.filter(
     (user) =>
       user.name.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase()),
+      user.email.toLowerCase().includes(search.toLowerCase()) ||
+      user.username.toLowerCase().includes(search.toLowerCase()),
   );
+  const pendingUsers = allUsers.filter((user) => user.status === "Pending").length;
+  const adminUsers = allUsers.filter((user) => user.role === "admin").length;
 
   return (
     <AppShell
@@ -49,9 +59,9 @@ export default function ManageUsers() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
-            <Kpi label="Total users" value="6" helper="Assigned seats" />
-            <Kpi label="Admins" value="2" helper="Elevated access" />
-            <Kpi label="Pending" value="1" helper="Awaiting activation" />
+            <Kpi label="Total users" value={String(allUsers.length)} helper="Assigned seats" />
+            <Kpi label="Admins" value={String(adminUsers)} helper="Elevated access" />
+            <Kpi label="Pending" value={String(pendingUsers)} helper="Awaiting activation" />
           </CardContent>
         </Card>
 
@@ -75,12 +85,19 @@ export default function ManageUsers() {
               <TableHeader>
                 <TableRow>
                   <TableHead>User</TableHead>
+                  <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                      Loading users...
+                    </TableCell>
+                  </TableRow>
+                ) : users.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -93,7 +110,8 @@ export default function ManageUsers() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>{user.role}</TableCell>
+                    <TableCell className="font-mono text-sm">{user.username}</TableCell>
+                    <TableCell>{ROLE_LABELS[user.role]}</TableCell>
                     <TableCell>
                       <Badge variant={user.status === "Active" ? "default" : "secondary"}>
                         {user.status}
@@ -103,6 +121,11 @@ export default function ManageUsers() {
                 ))}
               </TableBody>
             </Table>
+            {!isLoading && users.length === 0 ? (
+              <div className="pt-4 text-sm text-muted-foreground">
+                No matching users found.
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

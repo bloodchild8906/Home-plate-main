@@ -5,60 +5,78 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import type { ApiResponse, AuthToken, Role, User } from "@shared/api";
 
-export type UserRole = "admin" | "designer" | "operator" | "analyst";
-
-export interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-}
+export type UserRole = Role;
+export type AuthUser = User;
 
 interface AuthContextValue {
   isReady: boolean;
   isAuthenticated: boolean;
   user: AuthUser | null;
   signIn: (username: string, password: string) => Promise<AuthUser>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
   hasAccess: (allowedRoles?: UserRole[]) => boolean;
 }
 
-const AUTH_STORAGE_KEY = "homeplate_auth_user";
-
-const DEMO_USERS: Record<string, { password: string; user: AuthUser }> = {
-  admin: {
+const DEMO_USERS: Array<{
+  username: string;
+  password: string;
+  user: AuthUser;
+}> = [
+  {
+    username: "admin",
     password: "admin123!",
     user: {
+      id: "user-admin",
+      username: "admin",
       name: "Michael Brown",
       email: "michael@homeplate.app",
       role: "admin",
+      status: "Active",
+      createdAt: "2025-01-03T09:00:00.000Z",
     },
   },
-  designer: {
+  {
+    username: "designer",
     password: "design123!",
     user: {
+      id: "user-designer",
+      username: "designer",
       name: "Ava Patel",
       email: "ava@homeplate.app",
       role: "designer",
+      status: "Active",
+      createdAt: "2025-01-04T09:00:00.000Z",
     },
   },
-  operator: {
+  {
+    username: "operator",
     password: "store123!",
     user: {
+      id: "user-operator",
+      username: "operator",
       name: "Jordan Kim",
       email: "jordan@homeplate.app",
       role: "operator",
+      status: "Pending",
+      createdAt: "2025-01-05T09:00:00.000Z",
     },
   },
-  analyst: {
+  {
+    username: "analyst",
     password: "insight123!",
     user: {
+      id: "user-analyst",
+      username: "analyst",
       name: "Nina Cole",
       email: "nina@homeplate.app",
       role: "analyst",
+      status: "Active",
+      createdAt: "2025-01-06T09:00:00.000Z",
     },
   },
-};
+];
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -67,40 +85,66 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    let cancelled = false;
 
-    if (stored) {
+    const loadSession = async () => {
       try {
-        setUser(JSON.parse(stored) as AuthUser);
-      } catch {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
-      }
-    }
+        const response = await fetch("/api/auth/me");
+        if (!response.ok) {
+          throw new Error("Failed to load auth session");
+        }
 
-    setIsReady(true);
+        const payload = (await response.json()) as ApiResponse<AuthUser | null>;
+        if (!cancelled) {
+          setUser(payload.success ? payload.data ?? null : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    void loadSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const signIn = async (username: string, password: string) => {
-    const account = DEMO_USERS[username.trim().toLowerCase()];
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username,
+        password,
+      }),
+    });
 
-    await new Promise((resolve) => window.setTimeout(resolve, 700));
-
-    if (!account || account.password !== password) {
-      throw new Error("Invalid credentials");
+    const payload = (await response.json()) as ApiResponse<AuthToken>;
+    if (!response.ok || !payload.success || !payload.data?.user) {
+      throw new Error(payload.error || "Invalid credentials");
     }
 
-    window.localStorage.setItem(
-      AUTH_STORAGE_KEY,
-      JSON.stringify(account.user),
-    );
-    setUser(account.user);
-
-    return account.user;
+    setUser(payload.data.user);
+    return payload.data.user;
   };
 
-  const signOut = () => {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    setUser(null);
+  const signOut = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+      });
+    } finally {
+      setUser(null);
+    }
   };
 
   const hasAccess = (allowedRoles?: UserRole[]) => {
@@ -137,10 +181,4 @@ export function useAuth() {
   return context;
 }
 
-export const demoCredentials = Object.entries(DEMO_USERS).map(
-  ([username, value]) => ({
-    username,
-    password: value.password,
-    user: value.user,
-  }),
-);
+export const demoCredentials = DEMO_USERS;

@@ -12,13 +12,17 @@ export interface DemoResponse {
 }
 
 // ============ RBAC ============
-export type Role = "admin" | "manager" | "staff" | "viewer";
+export type Role = "admin" | "designer" | "operator" | "analyst";
+
+export type UserStatus = "Active" | "Pending";
 
 export interface User {
   id: string;
+  username: string;
   email: string;
   name: string;
   role: Role;
+  status: UserStatus;
   createdAt: string;
 }
 
@@ -94,8 +98,43 @@ export interface BrandingConfig {
   logo?: string;
   primaryColor: string;
   secondaryColor: string;
+  accentColor: string;
   favicon?: string;
   customDomain?: string;
+  fontFamily: "inter" | "poppins" | "playfair";
+}
+
+export interface SiteBrandConfig {
+  name: string;
+  tagline: string;
+  logo: string;
+  logoImage?: string;
+  faviconImage?: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  domain: string;
+}
+
+export type DashboardWidgetId =
+  | "focus"
+  | "overview"
+  | "quickActions"
+  | "categoryBreakdown"
+  | "accessRadar"
+  | "activity"
+  | "notes"
+  | "moduleBoard";
+
+export type DashboardDensity = "comfortable" | "compact";
+
+export interface DashboardPreferencesConfig {
+  density: DashboardDensity;
+  focusModulePath: string;
+  showLockedModules: boolean;
+  moduleColumns: 2 | 3 | 4;
+  widgetOrder: DashboardWidgetId[];
+  hiddenWidgets: DashboardWidgetId[];
 }
 
 // ============ Analytics ============
@@ -133,6 +172,85 @@ export interface PaginatedResponse<T> {
 }
 
 // ============ Builder Export ============
+export type BuilderExportLayoutDisplay = "block" | "flex" | "grid";
+
+export type BuilderExportLayoutDirection = "row" | "column";
+
+export type BuilderExportLayoutJustify =
+  | "flex-start"
+  | "center"
+  | "flex-end"
+  | "space-between"
+  | "space-around"
+  | "space-evenly";
+
+export type BuilderExportLayoutAlign = "stretch" | "flex-start" | "center" | "flex-end";
+
+export interface BuilderExportBlockLayout {
+  marginTop: number;
+  marginRight: number;
+  marginBottom: number;
+  marginLeft: number;
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  radius: number;
+  display: BuilderExportLayoutDisplay;
+  direction: BuilderExportLayoutDirection;
+  justify: BuilderExportLayoutJustify;
+  align: BuilderExportLayoutAlign;
+  gap: number;
+  columns: number;
+}
+
+export interface BuilderExportBlockAttributes {
+  elementId: string;
+  className: string;
+  style: string;
+}
+
+export type BuilderExportBlockActionKind = "none" | "navigate" | "api";
+
+export type BuilderExportBlockApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export type BuilderExportApiFunctionSourceField =
+  | "text"
+  | "helper"
+  | "points"
+  | "items"
+  | "htmlTag";
+
+export interface BuilderExportApiFunctionPropertyBinding {
+  id: string;
+  key: string;
+  sourceType: "block" | "static";
+  sourceBlockId: string;
+  sourceField: BuilderExportApiFunctionSourceField;
+  staticValue: string;
+}
+
+export interface BuilderExportApiFunction {
+  id: string;
+  name: string;
+  endpoint: string;
+  method: BuilderExportBlockApiMethod;
+  headers: string;
+  successMessage: string;
+  properties: BuilderExportApiFunctionPropertyBinding[];
+}
+
+export interface BuilderExportBlockEventBinding {
+  kind: BuilderExportBlockActionKind;
+  targetPageId: string;
+  functionId: string;
+  successMessage: string;
+}
+
+export interface BuilderExportBlockEvents {
+  tap: BuilderExportBlockEventBinding;
+}
+
 export interface BuilderExportBlock {
   id: string;
   type: string;
@@ -141,6 +259,11 @@ export interface BuilderExportBlock {
   helper?: string;
   items?: string[];
   points?: number;
+  htmlTag?: string;
+  htmlAttributes?: string;
+  layout: BuilderExportBlockLayout;
+  attributes: BuilderExportBlockAttributes;
+  events: BuilderExportBlockEvents;
 }
 
 export interface BuilderExportPage {
@@ -152,9 +275,18 @@ export interface BuilderExportPage {
 export interface BuilderExportBrand {
   appName: string;
   logo: string;
+  logoImage?: string;
   primary: string;
+  secondary: string;
   accent: string;
   surface: string;
+  textColor: string;
+  cardBackground: string;
+  fontFamily: string;
+  backgroundImage?: string;
+  heroImage?: string;
+  customCss: string;
+  customCssFileName: string;
   domain: string;
 }
 
@@ -162,7 +294,14 @@ export interface BuilderExportApp {
   id: string;
   name: string;
   brand: BuilderExportBrand;
+  apiFunctions: BuilderExportApiFunction[];
   pages: BuilderExportPage[];
+}
+
+export interface BuilderPersistedApp extends BuilderExportApp {
+  published: boolean;
+  live: boolean;
+  updatedAt: string;
 }
 
 export interface BuilderMauiExportRequest {

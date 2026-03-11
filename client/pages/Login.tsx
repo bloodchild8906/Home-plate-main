@@ -1,13 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChefHat, Lock, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { Lock, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { toast } from "sonner";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { demoCredentials, useAuth } from "@/lib/auth";
+import { useBranding } from "@/lib/branding";
 import { ROLE_LABELS } from "@/lib/navigation";
 
 export default function Login() {
@@ -15,6 +17,7 @@ export default function Login() {
   const [password, setPassword] = useState("admin123!");
   const [isLoading, setIsLoading] = useState(false);
   const { isAuthenticated, signIn, isReady } = useAuth();
+  const { brand } = useBranding();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,14 +46,25 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--accent)/0.22),transparent_28%),radial-gradient(circle_at_bottom_right,hsl(var(--primary)/0.24),transparent_32%),linear-gradient(145deg,#09111f,#111827_52%,#20110d)] px-4 py-10 text-white">
+    <div
+      className="min-h-screen px-4 py-10 text-white"
+      style={{
+        backgroundImage: `radial-gradient(circle at top left, hsl(var(--accent) / 0.22), transparent 28%), radial-gradient(circle at bottom right, hsl(var(--primary) / 0.24), transparent 32%), linear-gradient(145deg, ${brand.secondary}, ${brand.secondary} 52%, ${brand.primary})`,
+      }}
+    >
       <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-7xl gap-8 lg:grid-cols-[1.15fr_0.85fr]">
         <section className="flex flex-col justify-between rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-xl sm:p-10">
           <div>
-            <Badge className="rounded-full bg-white text-slate-950">HomePlate Secure Access</Badge>
-            <div className="mt-8 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary via-accent to-orange-300 text-primary-foreground shadow-lg">
-              <ChefHat className="h-8 w-8" />
-            </div>
+            <Badge className="rounded-full bg-white text-slate-950">{brand.name} Secure Access</Badge>
+            <BrandMark
+              image={brand.logoImage}
+              text={brand.logo}
+              label={`${brand.name} logo`}
+              primary={brand.primary}
+              accent={brand.accent}
+              className="mt-8 h-16 w-16 rounded-3xl"
+              imageClassName="object-contain bg-white p-2.5"
+            />
             <h1 className="mt-6 max-w-xl text-4xl font-black tracking-tight sm:text-5xl">
               Restaurant app operations with role-based access from the first screen.
             </h1>
@@ -124,7 +138,7 @@ export default function Login() {
                 </div>
 
                 <Button type="submit" className="h-12 w-full rounded-2xl text-base font-bold" disabled={isLoading}>
-                  {isLoading ? "Signing in..." : "Enter HomePlate"}
+                  {isLoading ? "Signing in..." : `Enter ${brand.name}`}
                 </Button>
               </form>
 

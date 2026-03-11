@@ -6,23 +6,23 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import type { ApiResponse, SiteBrandConfig } from "@shared/api";
+import {
+  getContrastTextColor,
+  hexToHsl,
+  mixHex,
+  normalizeHex,
+} from "@/lib/color-utils";
+import { getInitials } from "@/lib/asset-utils";
 
-export type SiteBrand = {
-  name: string;
-  tagline: string;
-  logo: string;
-  primary: string;
-  secondary: string;
-  accent: string;
-  domain: string;
-};
-
-const STORAGE_KEY = "homeplate_site_brand";
+export type SiteBrand = SiteBrandConfig;
 
 const DEFAULT_BRAND: SiteBrand = {
   name: "HomePlate",
   tagline: "Restaurant app platform",
   logo: "HP",
+  logoImage: "",
+  faviconImage: "",
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
@@ -33,93 +33,201 @@ type BrandingContextValue = {
   brand: SiteBrand;
   updateBrand: (updates: Partial<SiteBrand>) => void;
   resetBrand: () => void;
+  saveBrand: () => Promise<void>;
+  isSaving: boolean;
 };
 
 const BrandingContext = createContext<BrandingContextValue | undefined>(undefined);
 
-function hexToHsl(value: string) {
-  const normalized = value.replace("#", "");
-  const hex =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((char) => `${char}${char}`)
-          .join("")
-      : normalized;
+function normalizeBrand(value?: Partial<SiteBrand>) {
+  const nextName = value?.name?.trim() || DEFAULT_BRAND.name;
+  const nextLogo = value?.logo?.trim() || getInitials(nextName);
 
-  const safeHex = /^[0-9a-fA-F]{6}$/.test(hex) ? hex : "ea580c";
-  const r = parseInt(safeHex.slice(0, 2), 16) / 255;
-  const g = parseInt(safeHex.slice(2, 4), 16) / 255;
-  const b = parseInt(safeHex.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const lightness = (max + min) / 2;
+  return {
+    ...DEFAULT_BRAND,
+    ...value,
+    name: nextName,
+    tagline: value?.tagline?.trim() || DEFAULT_BRAND.tagline,
+    logo: nextLogo.toUpperCase().slice(0, 3),
+    logoImage: value?.logoImage ?? "",
+    faviconImage: value?.faviconImage ?? "",
+    primary: normalizeHex(value?.primary ?? DEFAULT_BRAND.primary),
+    secondary: normalizeHex(value?.secondary ?? DEFAULT_BRAND.secondary),
+    accent: normalizeHex(value?.accent ?? DEFAULT_BRAND.accent),
+    domain: value?.domain?.trim() || DEFAULT_BRAND.domain,
+  } satisfies SiteBrand;
+}
 
-  if (max === min) {
-    return `0 0% ${Math.round(lightness * 100)}%`;
+function ensureFavicon(href: string) {
+  const existing =
+    document.querySelector<HTMLLinkElement>('link[rel="icon"]') ??
+    document.createElement("link");
+  existing.rel = "icon";
+  existing.href = href;
+
+  if (!existing.parentNode) {
+    document.head.appendChild(existing);
   }
-
-  const delta = max - min;
-  const saturation =
-    lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
-
-  let hue = 0;
-  switch (max) {
-    case r:
-      hue = (g - b) / delta + (g < b ? 6 : 0);
-      break;
-    case g:
-      hue = (b - r) / delta + 2;
-      break;
-    default:
-      hue = (r - g) / delta + 4;
-      break;
-  }
-
-  hue /= 6;
-
-  return `${Math.round(hue * 360)} ${Math.round(saturation * 100)}% ${Math.round(lightness * 100)}%`;
 }
 
 export function BrandingProvider({ children }: PropsWithChildren) {
   const [brand, setBrand] = useState<SiteBrand>(DEFAULT_BRAND);
+  const [isReady, setIsReady] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    try {
-      setBrand(JSON.parse(raw) as SiteBrand);
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
+    let cancelled = false;
+
+    const loadBrand = async () => {
+      try {
+        const response = await fetch("/api/site-config/brand");
+        if (!response.ok) {
+          throw new Error("Failed to load site brand");
+        }
+
+        const payload = (await response.json()) as ApiResponse<SiteBrandConfig>;
+        if (!cancelled && payload.success && payload.data) {
+          setBrand(normalizeBrand(payload.data));
+        }
+      } catch {
+        if (!cancelled) {
+          setBrand(DEFAULT_BRAND);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    void loadBrand();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(brand));
+    const nextBrand = normalizeBrand(brand);
     const root = document.documentElement;
-    const primary = hexToHsl(brand.primary);
-    const secondary = hexToHsl(brand.secondary);
-    const accent = hexToHsl(brand.accent);
-    root.style.setProperty("--brand-primary", brand.primary);
-    root.style.setProperty("--brand-secondary", brand.secondary);
-    root.style.setProperty("--brand-accent", brand.accent);
-    root.style.setProperty("--primary", primary);
-    root.style.setProperty("--secondary", secondary);
-    root.style.setProperty("--accent", accent);
-    root.style.setProperty("--ring", primary);
-    root.style.setProperty("--sidebar-primary", primary);
-    root.style.setProperty("--sidebar-background", secondary);
-    root.style.setProperty("--sidebar-accent", accent);
-    document.title = `${brand.name} Control`;
+    const backgroundHex = mixHex(nextBrand.primary, "#ffffff", 0.97);
+    const cardHex = mixHex(nextBrand.primary, "#ffffff", 0.985);
+    const borderHex = mixHex(nextBrand.secondary, "#ffffff", 0.82);
+    const mutedHex = mixHex(nextBrand.secondary, "#ffffff", 0.92);
+    const foregroundHex =
+      getContrastTextColor(nextBrand.secondary) === "#ffffff"
+        ? mixHex(nextBrand.secondary, "#0f172a", 0.16)
+        : "#0f172a";
+    const mutedForegroundHex = mixHex(foregroundHex, "#94a3b8", 0.3);
+
+    root.style.setProperty("--brand-primary", nextBrand.primary);
+    root.style.setProperty("--brand-secondary", nextBrand.secondary);
+    root.style.setProperty("--brand-accent", nextBrand.accent);
+    root.style.setProperty("--brand-panel", nextBrand.secondary);
+    root.style.setProperty(
+      "--brand-panel-foreground",
+      getContrastTextColor(nextBrand.secondary),
+    );
+    root.style.setProperty(
+      "--brand-panel-muted",
+      mixHex(getContrastTextColor(nextBrand.secondary), nextBrand.secondary, 0.55),
+    );
+    root.style.setProperty("--background", hexToHsl(backgroundHex));
+    root.style.setProperty("--foreground", hexToHsl(foregroundHex));
+    root.style.setProperty("--card", hexToHsl(cardHex));
+    root.style.setProperty("--card-foreground", hexToHsl(foregroundHex));
+    root.style.setProperty("--popover", hexToHsl(cardHex));
+    root.style.setProperty("--popover-foreground", hexToHsl(foregroundHex));
+    root.style.setProperty("--primary", hexToHsl(nextBrand.primary));
+    root.style.setProperty(
+      "--primary-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.primary)),
+    );
+    root.style.setProperty("--secondary", hexToHsl(nextBrand.secondary));
+    root.style.setProperty(
+      "--secondary-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.secondary)),
+    );
+    root.style.setProperty("--muted", hexToHsl(mutedHex));
+    root.style.setProperty("--muted-foreground", hexToHsl(mutedForegroundHex));
+    root.style.setProperty("--accent", hexToHsl(nextBrand.accent));
+    root.style.setProperty(
+      "--accent-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.accent)),
+    );
+    root.style.setProperty("--border", hexToHsl(borderHex));
+    root.style.setProperty("--input", hexToHsl(mixHex(nextBrand.secondary, "#ffffff", 0.9)));
+    root.style.setProperty("--ring", hexToHsl(nextBrand.primary));
+    root.style.setProperty("--sidebar-background", hexToHsl(nextBrand.secondary));
+    root.style.setProperty(
+      "--sidebar-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.secondary)),
+    );
+    root.style.setProperty("--sidebar-primary", hexToHsl(nextBrand.primary));
+    root.style.setProperty(
+      "--sidebar-primary-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.primary)),
+    );
+    root.style.setProperty("--sidebar-accent", hexToHsl(nextBrand.accent));
+    root.style.setProperty(
+      "--sidebar-accent-foreground",
+      hexToHsl(getContrastTextColor(nextBrand.accent)),
+    );
+    root.style.setProperty(
+      "--sidebar-border",
+      hexToHsl(mixHex(nextBrand.secondary, "#ffffff", 0.8)),
+    );
+    root.style.setProperty("--sidebar-ring", hexToHsl(nextBrand.primary));
+
+    document.title = `${nextBrand.name} Control`;
+    ensureFavicon(nextBrand.faviconImage || nextBrand.logoImage || "/favicon.ico");
   }, [brand]);
+
+  const persistBrand = async (value: SiteBrand) => {
+    setIsSaving(true);
+
+    try {
+      const response = await fetch("/api/site-config/brand", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(normalizeBrand(value)),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to persist site brand");
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void persistBrand(brand).catch(() => undefined);
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [brand, isReady]);
 
   const value = useMemo<BrandingContextValue>(
     () => ({
       brand,
-      updateBrand: (updates) => setBrand((current) => ({ ...current, ...updates })),
+      updateBrand: (updates) =>
+        setBrand((current) => normalizeBrand({ ...current, ...updates })),
       resetBrand: () => setBrand(DEFAULT_BRAND),
+      saveBrand: async () => {
+        await persistBrand(brand);
+      },
+      isSaving,
     }),
-    [brand],
+    [brand, isSaving],
   );
 
   return <BrandingContext.Provider value={value}>{children}</BrandingContext.Provider>;

@@ -1,52 +1,30 @@
 import { RequestHandler } from "express";
-import { Member, ApiResponse, PaginatedResponse } from "@shared/api";
-
-// Mock data
-const mockMembers: Member[] = [
-  {
-    id: "member-1",
-    email: "john@example.com",
-    name: "John Doe",
-    phone: "555-1234",
-    loyaltyPoints: 2500,
-    tier: "Gold",
-    joinDate: "2023-01-15",
-    lastVisit: "2024-03-08",
-  },
-  {
-    id: "member-2",
-    email: "jane@example.com",
-    name: "Jane Smith",
-    phone: "555-5678",
-    loyaltyPoints: 1200,
-    tier: "Silver",
-    joinDate: "2023-06-20",
-    lastVisit: "2024-03-05",
-  },
-];
+import {
+  type ApiResponse,
+  type Member,
+  type PaginatedResponse,
+} from "@shared/api";
+import {
+  deleteMemberRecord,
+  getMember,
+  getMembersPage,
+  saveMember,
+} from "../lib/database";
 
 export const getMembers: RequestHandler = (req, res) => {
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const start = (page - 1) * limit;
-
-  const paginatedMembers = mockMembers.slice(start, start + limit);
+  const page = Math.max(1, Number(req.query.page ?? 1) || 1);
+  const limit = Math.max(1, Number(req.query.limit ?? 10) || 10);
 
   const response: ApiResponse<PaginatedResponse<Member>> = {
     success: true,
-    data: {
-      data: paginatedMembers,
-      total: mockMembers.length,
-      page,
-      limit,
-    },
+    data: getMembersPage(page, limit),
   };
+
   res.status(200).json(response);
 };
 
 export const getMemberById: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const member = mockMembers.find((m) => m.id === id);
+  const member = getMember(req.params.id);
 
   if (!member) {
     return res.status(404).json({
@@ -58,73 +36,69 @@ export const getMemberById: RequestHandler = (req, res) => {
   res.status(200).json({
     success: true,
     data: member,
-  });
+  } satisfies ApiResponse<Member>);
 };
 
 export const createMember: RequestHandler = (req, res) => {
-  const { email, name, phone } = req.body;
-
   const newMember: Member = {
     id: `member-${Date.now()}`,
-    email,
-    name,
-    phone,
+    email: String(req.body?.email ?? "").trim(),
+    name: String(req.body?.name ?? "").trim(),
+    phone: String(req.body?.phone ?? "").trim() || undefined,
     loyaltyPoints: 0,
     tier: "Bronze",
     joinDate: new Date().toISOString().split("T")[0],
   };
 
-  mockMembers.push(newMember);
-
+  saveMember(newMember);
   res.status(201).json({
     success: true,
     data: newMember,
-  });
+  } satisfies ApiResponse<Member>);
 };
 
 export const updateMember: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const member = mockMembers.find((m) => m.id === id);
+  const current = getMember(req.params.id);
 
-  if (!member) {
+  if (!current) {
     return res.status(404).json({
       success: false,
       error: "Member not found",
     });
   }
 
-  Object.assign(member, req.body);
+  const nextMember: Member = {
+    ...current,
+    ...req.body,
+    id: current.id,
+    loyaltyPoints: Number(req.body?.loyaltyPoints ?? current.loyaltyPoints),
+  };
 
+  saveMember(nextMember);
   res.status(200).json({
     success: true,
-    data: member,
-  });
+    data: nextMember,
+  } satisfies ApiResponse<Member>);
 };
 
 export const deleteMember: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const index = mockMembers.findIndex((m) => m.id === id);
+  const deleted = deleteMemberRecord(req.params.id);
 
-  if (index === -1) {
+  if (!deleted) {
     return res.status(404).json({
       success: false,
       error: "Member not found",
     });
   }
 
-  const deletedMember = mockMembers.splice(index, 1);
-
   res.status(200).json({
     success: true,
-    data: deletedMember[0],
-  });
+    data: deleted,
+  } satisfies ApiResponse<Member>);
 };
 
 export const addPoints: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const { points } = req.body;
-
-  const member = mockMembers.find((m) => m.id === id);
+  const member = getMember(req.params.id);
 
   if (!member) {
     return res.status(404).json({
@@ -133,10 +107,15 @@ export const addPoints: RequestHandler = (req, res) => {
     });
   }
 
-  member.loyaltyPoints += points;
+  const points = Number(req.body?.points ?? 0);
+  const updatedMember: Member = {
+    ...member,
+    loyaltyPoints: member.loyaltyPoints + points,
+  };
 
+  saveMember(updatedMember);
   res.status(200).json({
     success: true,
-    data: member,
-  });
+    data: updatedMember,
+  } satisfies ApiResponse<Member>);
 };

@@ -18,12 +18,15 @@ import {
   PieChart,
   Pie,
 } from "recharts";
+import { BrandMark } from "@/components/brand-mark";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useBranding } from "@/lib/branding";
 
 const COLORS = ["#f59e0b", "#3b82f6", "#10b981", "#ef4444", "#8b5cf6"];
 
 export default function Analytics() {
+  const { brand } = useBranding();
   const { data: analyticsResponse, isLoading } = useQuery<ApiResponse<AnalyticsSummary>>({
     queryKey: ["analytics"],
     queryFn: async () => {
@@ -42,11 +45,18 @@ export default function Analytics() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary via-accent to-yellow-600 flex items-center justify-center shadow-lg">
-                <span className="text-lg font-bold text-white">🏠</span>
-              </div>
+              <BrandMark
+                image={brand.logoImage}
+                text={brand.logo}
+                label={`${brand.name} logo`}
+                primary={brand.primary}
+                accent={brand.accent}
+                className="h-10 w-10 rounded-lg"
+                imageClassName="object-contain bg-white p-1.5"
+                textClassName="text-[11px]"
+              />
               <div>
-                <h1 className="text-xl font-bold text-foreground tracking-tight">HomePlate</h1>
+                <h1 className="text-xl font-bold text-foreground tracking-tight">{brand.name}</h1>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Analytics Dashboard</p>
               </div>
             </Link>

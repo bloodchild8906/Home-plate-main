@@ -43,7 +43,7 @@ export default function AccessControl() {
             </div>
 
             <div className="space-y-3">
-              <PolicyItem title="Auth persistence" value="Stored in localStorage for the demo environment." />
+              <PolicyItem title="Auth persistence" value="Stored in SQLite-backed server sessions with secure cookies." />
               <PolicyItem title="Route guards" value="Unauthorized users are redirected or shown an access-denied state." />
               <PolicyItem title="Source of truth" value="Dashboard cards and router rules share the same route metadata." />
             </div>

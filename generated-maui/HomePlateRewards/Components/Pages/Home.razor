@@ -1,0 +1,566 @@
+@page "/"
+
+<div class="phone-shell">
+    <div class="phone-status"></div>
+    <div class="app-chrome">
+        <div class="brand-header">
+            <div class="brand-logo">HP</div>
+            <div>
+                <div class="eyebrow">rewards.homeplate.app</div>
+                <div class="brand-title">HomePlate Rewards</div>
+            </div>
+        </div>
+
+        <div class="page-tabs">
+            @foreach (var pageItem in Pages)
+            {
+                <button class="@(CurrentPage.Id == pageItem.Id ? "tab active" : "tab")" @onclick="@(() => CurrentPage = pageItem)">
+                    @pageItem.Name
+                </button>
+            }
+        </div>
+
+        <div class="page-body">
+            @foreach (var block in CurrentPage.Blocks)
+            {
+                @RenderBlock(block)
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<PageModel> Pages = new()
+    {
+new PageModel
+        {
+            Id = "p-fca1wh",
+            Name = "Earn",
+            Blocks = new()
+            {
+                new BlockModel
+                {
+                    Id = "b-hkhb7s",
+                    Type = "heading",
+                    Name = "Heading",
+                    Text = "New section",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-6eknii",
+                    Type = "quicklinks",
+                    Name = "Quick Links",
+                    Text = "",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() { "Menu", "Earn", "Redeem", "Profile" },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-sxxv7i",
+                    Type = "heading",
+                    Name = "Heading",
+                    Text = "New section",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-g19kdb",
+                    Type = "receiptscan",
+                    Name = "Receipt Scan",
+                    Text = "Scan receipt to earn points",
+                    Helper = "OCR your printed receipt and add points instantly.",
+                    Points = 180,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-wjk3fc",
+                    Type = "qrcode",
+                    Name = "QR Scan",
+                    Text = "Scan venue QR",
+                    Helper = "Check in, earn, or redeem with a table QR code.",
+                    Points = 75,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+            }
+        },
+new PageModel
+        {
+            Id = "p-99ibwt",
+            Name = "Redeem",
+            Blocks = new()
+            {
+                new BlockModel
+                {
+                    Id = "b-kzjz62",
+                    Type = "heading",
+                    Name = "Heading",
+                    Text = "New section",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-yp5eme",
+                    Type = "rewardcatalog",
+                    Name = "Redeem Catalog",
+                    Text = "Spend points on rewards",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() { "250 pts Coffee", "500 pts 10% Off", "800 pts VIP Access" },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-xkwcu8",
+                    Type = "button",
+                    Name = "Button",
+                    Text = "Primary action",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+            }
+        },
+new PageModel
+        {
+            Id = "p-f5a95c",
+            Name = "Payments",
+            Blocks = new()
+            {
+                new BlockModel
+                {
+                    Id = "b-gb93f6",
+                    Type = "heading",
+                    Name = "Heading",
+                    Text = "New section",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-pdmzhv",
+                    Type = "wallet",
+                    Name = "Payments",
+                    Text = "Saved payment methods",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() { "Visa •••• 4242", "Apple Pay", "Corporate Card" },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+            }
+        },
+new PageModel
+        {
+            Id = "p-tspo5e",
+            Name = "Profile",
+            Blocks = new()
+            {
+                new BlockModel
+                {
+                    Id = "b-cu6gjd",
+                    Type = "profile",
+                    Name = "Profile",
+                    Text = "Member profile",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() { "Gold tier", "2,450 points", "3 cards on file" },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+                new BlockModel
+                {
+                    Id = "b-iwj8ux",
+                    Type = "button",
+                    Name = "Button",
+                    Text = "Primary action",
+                    Helper = "",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+            }
+        },
+new PageModel
+        {
+            Id = "p-eekm5n",
+            Name = "Auth",
+            Blocks = new()
+            {
+                new BlockModel
+                {
+                    Id = "b-cpi91p",
+                    Type = "auth",
+                    Name = "Auth Screen",
+                    Text = "Welcome back",
+                    Helper = "Sign in to sync payments, points, and rewards.",
+                    Points = 0,
+                    Items = new() {  },
+                    ElementId = "",
+                    ClassName = "",
+                    Style = "margin-top:0px; margin-right:0px; margin-bottom:12px; margin-left:0px; padding-top:16px; padding-right:16px; padding-bottom:16px; padding-left:16px; border-radius:20px;"
+                },
+            }
+        }
+    };
+
+    private PageModel CurrentPage = default!;
+
+    protected override void OnInitialized()
+    {
+        CurrentPage = Pages[0];
+    }
+
+    private static void ApplyBlockAttributes(RenderTreeBuilder builder, ref int seq, BlockModel block, string baseClass)
+    {
+        var className = string.IsNullOrWhiteSpace(block.ClassName)
+            ? baseClass
+            : $"{baseClass} {block.ClassName}";
+
+        builder.AddAttribute(seq++, "class", className);
+
+        if (!string.IsNullOrWhiteSpace(block.ElementId))
+        {
+            builder.AddAttribute(seq++, "id", block.ElementId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(block.Style))
+        {
+            builder.AddAttribute(seq++, "style", block.Style);
+        }
+    }
+
+    private RenderFragment RenderBlock(BlockModel block) => builder =>
+    {
+        var seq = 0;
+
+        switch (block.Type)
+        {
+            case "heading":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block card heading");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                break;
+            case "text":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block card text");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                break;
+            case "button":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block");
+                builder.OpenElement(seq++, "button");
+                builder.AddAttribute(seq++, "class", "primary-button");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
+            case "quicklinks":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block links-grid");
+                foreach (var item in block.Items)
+                {
+                    builder.OpenElement(seq++, "div");
+                    builder.AddAttribute(seq++, "class", "link-chip");
+                    builder.AddContent(seq++, item);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
+            case "receiptscan":
+            case "qrcode":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block scan-card");
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "scan-title");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "scan-helper");
+                builder.AddContent(seq++, block.Helper);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "scan-points");
+                builder.AddContent(seq++, $"+{block.Points} pts");
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
+            case "rewardcatalog":
+            case "wallet":
+            case "profile":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block stack-card");
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "stack-title");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                foreach (var item in block.Items)
+                {
+                    builder.OpenElement(seq++, "div");
+                    builder.AddAttribute(seq++, "class", "stack-row");
+                    builder.AddContent(seq++, item);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
+            case "auth":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block auth-card");
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "auth-title");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "auth-helper");
+                builder.AddContent(seq++, block.Helper);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "input-mock");
+                builder.AddContent(seq++, "Email");
+                builder.CloseElement();
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "input-mock");
+                builder.AddContent(seq++, "Password");
+                builder.CloseElement();
+                builder.OpenElement(seq++, "button");
+                builder.AddAttribute(seq++, "class", "primary-button");
+                builder.AddContent(seq++, "Sign in");
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
+        }
+    };
+
+    private sealed class PageModel
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public List<BlockModel> Blocks { get; set; } = new();
+    }
+
+    private sealed class BlockModel
+    {
+        public string Id { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Text { get; set; } = "";
+        public string Helper { get; set; } = "";
+        public int Points { get; set; }
+        public List<string> Items { get; set; } = new();
+        public string ElementId { get; set; } = "";
+        public string ClassName { get; set; } = "";
+        public string Style { get; set; } = "";
+    }
+}
+
+<style>
+    .phone-shell {
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 24px;
+        background: linear-gradient(180deg, #fff7ed, #ffffff);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        color: #0f172a;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    .phone-status {
+        display: none;
+    }
+    .app-chrome {
+        width: min(100%, 430px);
+        background: #0f172a;
+        border-radius: 40px;
+        padding: 12px;
+        box-shadow: 0 40px 120px -40px rgba(15, 23, 42, 0.72);
+    }
+    .page-tabs, .page-body {
+        background: #ffffff;
+    }
+    .brand-header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 16px;
+        border-radius: 28px 28px 18px 18px;
+        color: white;
+        background: linear-gradient(145deg, #0f172a, #ea580c);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+    }
+    .brand-logo {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ea580c;
+        color: white;
+        font-weight: 800;
+        flex-shrink: 0;
+    }
+    .brand-logo-image {
+        overflow: hidden;
+        background: white;
+        padding: 8px;
+    }
+    .brand-logo-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    .eyebrow {
+        font-size: 11px;
+        color: rgba(255,255,255,0.72);
+        text-transform: uppercase;
+    }
+    .brand-title {
+        font-size: 20px;
+        font-weight: 800;
+    }
+    .page-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 16px 16px;
+    }
+    .tab {
+        border: 1px solid #e2e8f0;
+        background: white;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .tab.active {
+        background: #ea580c;
+        color: white;
+        border-color: #ea580c;
+    }
+    .page-body {
+        padding: 0 16px 16px;
+        border-radius: 0 0 28px 28px;
+        display: grid;
+        gap: 12px;
+        min-height: 70vh;
+    }
+    .block {
+        border-radius: 22px;
+        padding: 16px;
+        background: #ffffff;
+        color: #0f172a;
+        box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.3);
+    }
+    .heading {
+        font-size: 24px;
+        font-weight: 900;
+    }
+    .text {
+        font-size: 14px;
+        line-height: 1.5;
+        color: #0f172a;
+    }
+    .primary-button {
+        border: 0;
+        width: 100%;
+        border-radius: 18px;
+        padding: 12px 16px;
+        font-weight: 800;
+        background: #ea580c;
+        color: white;
+    }
+    .links-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .link-chip, .stack-row, .input-mock {
+        border-radius: 18px;
+        padding: 12px;
+        background: #fff7ed;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .scan-card {
+        background: linear-gradient(135deg, #ea580c, #f59e0b);
+        color: white;
+    }
+    .scan-title, .stack-title, .auth-title {
+        font-size: 18px;
+        font-weight: 900;
+    }
+    .scan-helper, .auth-helper {
+        margin-top: 6px;
+        font-size: 12px;
+    }
+    .scan-helper {
+        color: rgba(255,255,255,0.82);
+    }
+    .auth-helper {
+        color: #0f172a;
+        opacity: 0.72;
+    }
+    .scan-points {
+        margin-top: 12px;
+        display: inline-flex;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.15);
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .stack-card {
+        display: grid;
+        gap: 10px;
+    }
+    .auth-card {
+        display: grid;
+        gap: 10px;
+    }
+</style>

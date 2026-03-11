@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Copy, Pencil, Plus, Rocket, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Rocket, Sparkles, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,7 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useBuilderStore } from "@/lib/builder-store";
+import { Input } from "@/components/ui/input";
+import {
+  APP_TEMPLATES,
+  type BuilderAppTemplateId,
+  useBuilderStore,
+} from "@/lib/builder-store";
 
 export default function MobileAppBuilder() {
   const navigate = useNavigate();
@@ -37,8 +43,8 @@ export default function MobileAppBuilder() {
         <CreateAppDialog
           open={open}
           onOpenChange={setOpen}
-          onCreate={(mode) => {
-            const id = createApp(mode);
+          onCreate={(options) => {
+            const id = createApp(options);
             navigate(`/builder/${id}`);
           }}
         />
@@ -63,12 +69,15 @@ export default function MobileAppBuilder() {
                 <TableRow key={app.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div
-                        className="flex h-11 w-11 items-center justify-center rounded-2xl text-sm font-black text-white"
-                        style={{ backgroundColor: app.brand.primary }}
-                      >
-                        {app.brand.logo}
-                      </div>
+                      <BrandMark
+                        image={app.brand.logoImage}
+                        text={app.brand.logo}
+                        label={`${app.brand.appName} logo`}
+                        primary={app.brand.primary}
+                        accent={app.brand.accent}
+                        className="h-11 w-11"
+                        imageClassName="object-contain bg-white p-1.5"
+                      />
                       <div>
                         <div className="font-bold">{app.name}</div>
                         <div className="text-xs text-muted-foreground">{app.brand.appName}</div>
@@ -144,8 +153,12 @@ function CreateAppDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (mode: "blank" | "template") => void;
+  onCreate: (options: { name: string; templateId: BuilderAppTemplateId }) => void;
 }) {
+  const [appName, setAppName] = useState("");
+  const [templateId, setTemplateId] = useState<BuilderAppTemplateId>("loyalty");
+  const isValid = appName.trim().length > 0;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -158,38 +171,82 @@ function CreateAppDialog({
         <DialogHeader>
           <DialogTitle>Create a new app</DialogTitle>
           <DialogDescription>
-            Choose whether to start from a blank canvas or from the default loyalty template.
+            Pick a starting template, then name the app before opening the designer.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 md:grid-cols-2">
-          <button
-            onClick={() => {
-              onCreate("blank");
-              onOpenChange(false);
-            }}
-            className="rounded-3xl border border-border/60 bg-background p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5"
-          >
-            <div className="text-lg font-black tracking-tight">Blank App</div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Starts with a simple home page so you can build every page and flow from scratch.
-            </p>
-          </button>
-          <button
-            onClick={() => {
-              onCreate("template");
-              onOpenChange(false);
-            }}
-            className="rounded-3xl border border-border/60 bg-background p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5"
-          >
-            <div className="text-lg font-black tracking-tight">From Template</div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Starts with default `Earn`, `Redeem`, `Payments`, `Profile`, and `Auth` pages prefilled.
-            </p>
-          </button>
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+              App name
+            </div>
+            <Input
+              value={appName}
+              onChange={(event) => setAppName(event.target.value)}
+              placeholder="Enter the app name"
+              className="rounded-2xl"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+              Template
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {APP_TEMPLATES.map((template) => {
+                const selected = template.id === templateId;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => setTemplateId(template.id)}
+                    className={`rounded-3xl border p-5 text-left transition-all ${
+                      selected
+                        ? "border-primary/50 bg-primary/5 shadow-sm"
+                        : "border-border/60 bg-background hover:border-primary/30 hover:bg-primary/5"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-black tracking-tight">{template.label}</div>
+                        <p className="mt-2 text-sm text-muted-foreground">{template.description}</p>
+                      </div>
+                      {selected ? <Sparkles className="h-4 w-4 text-primary" /> : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Badge variant={selected ? "default" : "outline"} className="rounded-full px-3 py-1">
+                        {template.category}
+                      </Badge>
+                      <Badge variant="outline" className="rounded-full px-3 py-1">
+                        {template.pageCount} pages
+                      </Badge>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {template.preview.map((item) => (
+                        <span key={item} className="rounded-full border border-border/60 px-2 py-1">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
+          </Button>
+          <Button
+            disabled={!isValid}
+            onClick={() => {
+              onCreate({ name: appName.trim(), templateId });
+              setAppName("");
+              setTemplateId("loyalty");
+              onOpenChange(false);
+            }}
+          >
+            Create app
           </Button>
         </DialogFooter>
       </DialogContent>

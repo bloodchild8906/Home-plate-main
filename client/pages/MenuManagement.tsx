@@ -51,11 +51,14 @@ import {
 } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { BrandMark } from "@/components/brand-mark";
+import { useBranding } from "@/lib/branding";
 
 export default function MenuManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const queryClient = useQueryClient();
+  const { brand } = useBranding();
 
   // Fetch menus
   const { data: menusResponse, isLoading } = useQuery<ApiResponse<MenuType[]>>({
@@ -98,11 +101,18 @@ export default function MenuManagement() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary via-accent to-yellow-600 flex items-center justify-center shadow-lg">
-                <span className="text-lg font-bold text-white">🏠</span>
-              </div>
+              <BrandMark
+                image={brand.logoImage}
+                text={brand.logo}
+                label={`${brand.name} logo`}
+                primary={brand.primary}
+                accent={brand.accent}
+                className="h-10 w-10 rounded-lg"
+                imageClassName="object-contain bg-white p-1.5"
+                textClassName="text-[11px]"
+              />
               <div>
-                <h1 className="text-xl font-bold text-foreground">HomePlate</h1>
+                <h1 className="text-xl font-bold text-foreground">{brand.name}</h1>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Admin Panel</p>
               </div>
             </Link>

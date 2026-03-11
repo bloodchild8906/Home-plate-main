@@ -99,7 +99,11 @@ function sanitizeProjectName(name: string) {
 }
 
 function escapeCSharp(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/"/g, '\\"');
 }
 
 function escapeXml(value: string) {
@@ -119,15 +123,89 @@ function generateMainLayout(app: BuilderExportApp) {
 `;
 }
 
+function createAppBackground(brand: BuilderExportApp["brand"]) {
+  return brand.backgroundImage
+    ? `linear-gradient(180deg, ${brand.surface}f2, #ffffffe6), url(${brand.backgroundImage})`
+    : `linear-gradient(180deg, ${brand.surface}, #ffffff)`;
+}
+
+function createHeroBackground(brand: BuilderExportApp["brand"]) {
+  return brand.heroImage
+    ? `linear-gradient(145deg, ${brand.secondary}de, ${brand.primary}c8), url(${brand.heroImage})`
+    : `linear-gradient(145deg, ${brand.secondary}, ${brand.primary})`;
+}
+
+function createBlockInlineStyle(block: BuilderExportApp["pages"][number]["blocks"][number]) {
+  const layout = block.layout ?? {
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 12,
+    marginLeft: 0,
+    paddingTop: 16,
+    paddingRight: 16,
+    paddingBottom: 16,
+    paddingLeft: 16,
+    radius: 20,
+    display: "block",
+    direction: "column",
+    justify: "flex-start",
+    align: "stretch",
+    gap: 12,
+    columns: 2,
+  };
+
+  const parts = [
+    `margin-top:${layout.marginTop}px`,
+    `margin-right:${layout.marginRight}px`,
+    `margin-bottom:${layout.marginBottom}px`,
+    `margin-left:${layout.marginLeft}px`,
+    `padding-top:${layout.paddingTop}px`,
+    `padding-right:${layout.paddingRight}px`,
+    `padding-bottom:${layout.paddingBottom}px`,
+    `padding-left:${layout.paddingLeft}px`,
+    `border-radius:${layout.radius}px`,
+  ];
+
+  if (layout.display === "flex" || layout.display === "grid") {
+    parts.push(`display:${layout.display}`);
+    parts.push(`gap:${layout.gap}px`);
+    parts.push(`justify-content:${layout.justify}`);
+    parts.push(`align-items:${layout.align}`);
+
+    if (layout.display === "flex") {
+      parts.push(`flex-direction:${layout.direction}`);
+    }
+
+    if (layout.display === "grid") {
+      parts.push(`grid-template-columns:repeat(${Math.max(1, layout.columns)}, minmax(0, 1fr))`);
+    }
+  }
+
+  if (block.attributes?.style?.trim()) {
+    parts.push(block.attributes.style.trim());
+  }
+
+  return `${parts.join("; ")};`;
+}
+
 function generateMainLayoutCss(app: BuilderExportApp) {
   return `.maui-app-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, ${app.brand.surface}, #ffffff);
+  background: ${createAppBackground(app.brand)};
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: ${app.brand.textColor};
+  font-family: ${app.brand.fontFamily};
 }
+${app.brand.customCss?.trim() ? `\n/* Custom app CSS */\n${app.brand.customCss.trim()}\n` : ""}
 `;
 }
 
 function generateHomeRazor(app: BuilderExportApp) {
+  const brandLogo = app.brand.logoImage
+    ? `<div class="brand-logo brand-logo-image"><img src="${escapeXml(app.brand.logoImage)}" alt="${escapeXml(`${app.brand.appName} logo`)}" /></div>`
+    : `<div class="brand-logo">${escapeXml(app.brand.logo)}</div>`;
   const pagesCode = app.pages
     .map(
       (page) => `new PageModel
@@ -140,12 +218,18 @@ ${page.blocks
   .map(
     (block) => `                new BlockModel
                 {
+                    Id = "${escapeCSharp(block.id)}",
                     Type = "${escapeCSharp(block.type)}",
                     Name = "${escapeCSharp(block.name)}",
                     Text = "${escapeCSharp(block.text ?? "")}",
                     Helper = "${escapeCSharp(block.helper ?? "")}",
                     Points = ${block.points ?? 0},
-                    Items = new() { ${(block.items ?? []).map((item) => `"${escapeCSharp(item)}"`).join(", ")} }
+                    Items = new() { ${(block.items ?? []).map((item) => `"${escapeCSharp(item)}"`).join(", ")} },
+                    HtmlTag = "${escapeCSharp(block.htmlTag ?? "")}",
+                    HtmlAttributes = "${escapeCSharp(block.htmlAttributes ?? "")}",
+                    ElementId = "${escapeCSharp(block.attributes?.elementId ?? "")}",
+                    ClassName = "${escapeCSharp(block.attributes?.className ?? "")}",
+                    Style = "${escapeCSharp(createBlockInlineStyle(block))}"
                 },`,
   )
   .join("\n")}
@@ -160,10 +244,10 @@ ${page.blocks
     <div class="phone-status"></div>
     <div class="app-chrome">
         <div class="brand-header">
-            <div class="brand-logo">${escapeCSharp(app.brand.logo)}</div>
+            ${brandLogo}
             <div>
-                <div class="eyebrow">${escapeCSharp(app.brand.domain)}</div>
-                <div class="brand-title">${escapeCSharp(app.brand.appName)}</div>
+                <div class="eyebrow">${escapeXml(app.brand.domain)}</div>
+                <div class="brand-title">${escapeXml(app.brand.appName)}</div>
             </div>
         </div>
 
@@ -198,6 +282,25 @@ ${pagesCode}
         CurrentPage = Pages[0];
     }
 
+    private static void ApplyBlockAttributes(RenderTreeBuilder builder, ref int seq, BlockModel block, string baseClass)
+    {
+        var className = string.IsNullOrWhiteSpace(block.ClassName)
+            ? baseClass
+            : $"{baseClass} {block.ClassName}";
+
+        builder.AddAttribute(seq++, "class", className);
+
+        if (!string.IsNullOrWhiteSpace(block.ElementId))
+        {
+            builder.AddAttribute(seq++, "id", block.ElementId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(block.Style))
+        {
+            builder.AddAttribute(seq++, "style", block.Style);
+        }
+    }
+
     private RenderFragment RenderBlock(BlockModel block) => builder =>
     {
         var seq = 0;
@@ -206,25 +309,37 @@ ${pagesCode}
         {
             case "heading":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block card heading");
+                ApplyBlockAttributes(builder, ref seq, block, "block card heading");
                 builder.AddContent(seq++, block.Text);
                 builder.CloseElement();
                 break;
             case "text":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block card text");
+                ApplyBlockAttributes(builder, ref seq, block, "block card text");
                 builder.AddContent(seq++, block.Text);
                 builder.CloseElement();
                 break;
             case "button":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block");
                 builder.OpenElement(seq++, "button");
-                builder.AddAttribute(seq++, "class", "block primary-button");
+                builder.AddAttribute(seq++, "class", "primary-button");
                 builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
+            case "html":
+                builder.OpenElement(seq++, "div");
+                ApplyBlockAttributes(builder, ref seq, block, "block card text");
+                builder.OpenElement(seq++, string.IsNullOrWhiteSpace(block.HtmlTag) ? "div" : block.HtmlTag);
+                builder.AddAttribute(seq++, "class", "html-element");
+                builder.AddContent(seq++, block.Text);
+                builder.CloseElement();
                 builder.CloseElement();
                 break;
             case "quicklinks":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block links-grid");
+                ApplyBlockAttributes(builder, ref seq, block, "block links-grid");
                 foreach (var item in block.Items)
                 {
                     builder.OpenElement(seq++, "div");
@@ -237,7 +352,7 @@ ${pagesCode}
             case "receiptscan":
             case "qrcode":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block scan-card");
+                ApplyBlockAttributes(builder, ref seq, block, "block scan-card");
                 builder.OpenElement(seq++, "div");
                 builder.AddAttribute(seq++, "class", "scan-title");
                 builder.AddContent(seq++, block.Text);
@@ -256,7 +371,7 @@ ${pagesCode}
             case "wallet":
             case "profile":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block stack-card");
+                ApplyBlockAttributes(builder, ref seq, block, "block stack-card");
                 builder.OpenElement(seq++, "div");
                 builder.AddAttribute(seq++, "class", "stack-title");
                 builder.AddContent(seq++, block.Text);
@@ -272,7 +387,7 @@ ${pagesCode}
                 break;
             case "auth":
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "block auth-card");
+                ApplyBlockAttributes(builder, ref seq, block, "block auth-card");
                 builder.OpenElement(seq++, "div");
                 builder.AddAttribute(seq++, "class", "auth-title");
                 builder.AddContent(seq++, block.Text);
@@ -290,7 +405,7 @@ ${pagesCode}
                 builder.AddContent(seq++, "Password");
                 builder.CloseElement();
                 builder.OpenElement(seq++, "button");
-                builder.AddAttribute(seq++, "class", "block primary-button");
+                builder.AddAttribute(seq++, "class", "primary-button");
                 builder.AddContent(seq++, "Sign in");
                 builder.CloseElement();
                 builder.CloseElement();
@@ -307,12 +422,18 @@ ${pagesCode}
 
     private sealed class BlockModel
     {
+        public string Id { get; set; } = "";
         public string Type { get; set; } = "";
         public string Name { get; set; } = "";
         public string Text { get; set; } = "";
         public string Helper { get; set; } = "";
         public int Points { get; set; }
         public List<string> Items { get; set; } = new();
+        public string HtmlTag { get; set; } = "";
+        public string HtmlAttributes { get; set; } = "";
+        public string ElementId { get; set; } = "";
+        public string ClassName { get; set; } = "";
+        public string Style { get; set; } = "";
     }
 }
 
@@ -323,21 +444,25 @@ ${pagesCode}
         justify-content: center;
         align-items: flex-start;
         padding: 24px;
-        background: linear-gradient(180deg, ${app.brand.surface}, #ffffff);
-        color: #0f172a;
+        background: ${createAppBackground(app.brand)};
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        color: ${app.brand.textColor};
+        font-family: ${app.brand.fontFamily};
     }
     .phone-status {
         display: none;
     }
     .app-chrome {
         width: min(100%, 430px);
-        background: #0f172a;
+        background: ${app.brand.secondary};
         border-radius: 40px;
         padding: 12px;
         box-shadow: 0 40px 120px -40px rgba(15, 23, 42, 0.72);
     }
-    .brand-header, .page-tabs, .page-body {
-        background: white;
+    .page-tabs, .page-body {
+        background: ${app.brand.cardBackground};
     }
     .brand-header {
         display: flex;
@@ -345,6 +470,11 @@ ${pagesCode}
         align-items: center;
         padding: 16px;
         border-radius: 28px 28px 18px 18px;
+        color: white;
+        background: ${createHeroBackground(app.brand)};
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
     }
     .brand-logo {
         width: 48px;
@@ -356,10 +486,21 @@ ${pagesCode}
         background: ${app.brand.primary};
         color: white;
         font-weight: 800;
+        flex-shrink: 0;
+    }
+    .brand-logo-image {
+        overflow: hidden;
+        background: white;
+        padding: 8px;
+    }
+    .brand-logo-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
     }
     .eyebrow {
         font-size: 11px;
-        color: #64748b;
+        color: rgba(255,255,255,0.72);
         text-transform: uppercase;
     }
     .brand-title {
@@ -392,10 +533,11 @@ ${pagesCode}
         gap: 12px;
         min-height: 70vh;
     }
-    .block.card, .scan-card, .stack-card, .auth-card {
+    .block {
         border-radius: 22px;
         padding: 16px;
-        background: white;
+        background: ${app.brand.cardBackground};
+        color: ${app.brand.textColor};
         box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.3);
     }
     .heading {
@@ -405,7 +547,7 @@ ${pagesCode}
     .text {
         font-size: 14px;
         line-height: 1.5;
-        color: #475569;
+        color: ${app.brand.textColor};
     }
     .primary-button {
         border: 0;
@@ -424,7 +566,7 @@ ${pagesCode}
     .link-chip, .stack-row, .input-mock {
         border-radius: 18px;
         padding: 12px;
-        background: #f8fafc;
+        background: ${app.brand.surface};
         font-size: 13px;
         font-weight: 700;
     }
@@ -439,7 +581,13 @@ ${pagesCode}
     .scan-helper, .auth-helper {
         margin-top: 6px;
         font-size: 12px;
+    }
+    .scan-helper {
         color: rgba(255,255,255,0.82);
+    }
+    .auth-helper {
+        color: ${app.brand.textColor};
+        opacity: 0.72;
     }
     .scan-points {
         margin-top: 12px;

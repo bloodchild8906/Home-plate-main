@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { useBranding } from "@/lib/branding";
 import { HelpWidget } from "@/components/help-widget";
+import { BrandMark } from "@/components/brand-mark";
 
 export function AppShell({
   title,
@@ -29,24 +30,27 @@ export function AppShell({
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--accent)/0.24),transparent_32%),radial-gradient(circle_at_top_right,hsl(var(--primary)/0.16),transparent_28%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.45))]">
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
         <aside
-          className="hidden w-80 shrink-0 border-r border-white/60 px-6 py-8 text-slate-100 lg:flex lg:flex-col"
-          style={{ background: `linear-gradient(180deg, ${brand.secondary}, #020617)` }}
+          className="hidden w-80 shrink-0 border-r border-white/10 px-6 py-8 lg:flex lg:flex-col"
+          style={{
+            background: `linear-gradient(180deg, ${brand.secondary}, ${brand.secondary} 55%, #020617)`,
+            color: "var(--brand-panel-foreground)",
+          }}
         >
           <Link
             to="/"
             className="rounded-3xl border border-white/10 p-5"
             style={{ backgroundColor: `${brand.secondary}cc` }}
           >
-            <div
-              className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-black text-white shadow-lg"
-              style={{ background: `linear-gradient(135deg, ${brand.primary}, ${brand.accent})` }}
-            >
-              {brand.logo}
-            </div>
+            <BrandMark
+              image={brand.logoImage}
+              text={brand.logo}
+              label={`${brand.name} logo`}
+              primary={brand.primary}
+              accent={brand.accent}
+              className="mb-4 h-12 w-12"
+            />
             <div className="text-lg font-black tracking-tight">{brand.name} Control</div>
-            <p className="mt-1 text-sm text-slate-400">
-              {brand.tagline}
-            </p>
+            <p className="mt-1 text-sm" style={{ color: "var(--brand-panel-muted)" }}>{brand.tagline}</p>
           </Link>
 
           <div className="mt-8 space-y-2">
@@ -79,7 +83,12 @@ export function AppShell({
                       <span className="font-bold">{route.title}</span>
                       <ArrowRight className={cn("h-4 w-4 transition-transform", isActive ? "" : "group-hover:translate-x-0.5")} />
                     </div>
-                    <p className={cn("mt-1 text-xs", isActive ? "text-slate-500" : "text-slate-400")}>
+                    <p
+                      className="mt-1 text-xs"
+                      style={{
+                        color: isActive ? "hsl(var(--foreground))" : "var(--brand-panel-muted)",
+                      }}
+                    >
                       {route.shortDescription}
                     </p>
                   </div>
@@ -103,23 +112,22 @@ export function AppShell({
 
           <div className="mt-auto rounded-3xl border border-white/10 bg-white/5 p-5">
             <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-400/15 text-emerald-300">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: `${brand.accent}22`, color: brand.accent }}
+              >
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
                 <div className="text-sm font-bold">{user?.name}</div>
-                <div className="text-xs text-slate-400">{user?.email}</div>
+                <div className="text-xs" style={{ color: "var(--brand-panel-muted)" }}>{user?.email}</div>
               </div>
             </div>
             <div className="mb-4 flex items-center justify-between rounded-2xl bg-black/20 px-3 py-2 text-xs">
-              <span className="text-slate-400">Signed in as</span>
-              <span className="font-bold text-white">{user ? ROLE_LABELS[user.role] : "Unknown"}</span>
+              <span style={{ color: "var(--brand-panel-muted)" }}>Signed in as</span>
+              <span className="font-bold">{user ? ROLE_LABELS[user.role] : "Unknown"}</span>
             </div>
-            <Button
-              variant="secondary"
-              className="w-full justify-center rounded-2xl bg-white text-slate-950 hover:bg-white/90"
-              onClick={signOut}
-            >
+            <Button variant="secondary" className="w-full justify-center rounded-2xl" onClick={signOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </Button>
@@ -131,12 +139,14 @@ export function AppShell({
             <div className={cn("mx-auto px-4 py-5 sm:px-6", fluid ? "max-w-none" : "max-w-7xl")}>
               <div className="mb-4 flex items-center justify-between gap-4 lg:hidden">
                 <Link to="/" className="flex items-center gap-3">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl text-sm font-black text-white"
-                    style={{ background: `linear-gradient(135deg, ${brand.primary}, ${brand.accent})` }}
-                  >
-                    {brand.logo}
-                  </div>
+                  <BrandMark
+                    image={brand.logoImage}
+                    text={brand.logo}
+                    label={`${brand.name} logo`}
+                    primary={brand.primary}
+                    accent={brand.accent}
+                    className="h-11 w-11"
+                  />
                   <div>
                     <div className="text-sm font-black">{brand.name}</div>
                     <div className="text-xs text-muted-foreground">Workspace</div>
