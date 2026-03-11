@@ -6,9 +6,19 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { ApiResponse, BuilderPersistedApp } from "@shared/api";
+import type {
+  ApiResponse,
+  BuilderApiParameterLocation,
+  BuilderPersistedApp,
+} from "@shared/api";
 import { getInitials, slugify } from "@/lib/asset-utils";
 import { normalizeHex } from "@/lib/color-utils";
+import { resolveFontFamily } from "@/lib/font-utils";
+import {
+  DEFAULT_APP_THEME_PRESET_ID,
+  DEFAULT_FONT_PRESET_ID,
+  UPLOADED_FONT_PRESET_ID,
+} from "@/lib/theme-presets";
 import { useAuth } from "@/lib/auth";
 
 export type BuilderBlockType =
@@ -76,6 +86,8 @@ export type BuilderApiFunctionSourceField =
 export type BuilderApiFunctionPropertyBinding = {
   id: string;
   key: string;
+  location: BuilderApiParameterLocation;
+  required: boolean;
   sourceType: "block" | "static";
   sourceBlockId: string;
   sourceField: BuilderApiFunctionSourceField;
@@ -85,8 +97,11 @@ export type BuilderApiFunctionPropertyBinding = {
 export type BuilderApiFunction = {
   id: string;
   name: string;
+  endpointId: string;
   endpoint: string;
   method: BuilderBlockApiMethod;
+  requiresAuth: boolean;
+  authBlockId: string;
   headers: string;
   successMessage: string;
   properties: BuilderApiFunctionPropertyBinding[];
@@ -134,7 +149,12 @@ export type BuilderBrand = {
   surface: string;
   textColor: string;
   cardBackground: string;
+  themePresetId: string;
+  fontPresetId: string;
   fontFamily: string;
+  customFontName?: string;
+  customFontSource?: string;
+  customFontFormat?: string;
   backgroundImage?: string;
   heroImage?: string;
   customCss: string;
@@ -251,6 +271,8 @@ function createDefaultApiFunctionPropertyBinding(): BuilderApiFunctionPropertyBi
   return {
     id: uid("prop"),
     key: "value",
+    location: "body",
+    required: false,
     sourceType: "block",
     sourceBlockId: "",
     sourceField: "text",
@@ -262,11 +284,14 @@ function createDefaultApiFunction(index = 0): BuilderApiFunction {
   return {
     id: uid("fn"),
     name: `Function ${index + 1}`,
+    endpointId: "ping",
     endpoint: "/api/ping",
     method: "GET",
+    requiresAuth: false,
+    authBlockId: "",
     headers: "",
     successMessage: "",
-    properties: [createDefaultApiFunctionPropertyBinding()],
+    properties: [],
   };
 }
 
@@ -357,6 +382,11 @@ function normalizeApiFunctionPropertyBinding(
     ...createDefaultApiFunctionPropertyBinding(),
     id: value?.id ?? uid("prop"),
     key: value?.key?.trim() || "value",
+    location:
+      value?.location === "path" || value?.location === "query" || value?.location === "body"
+        ? value.location
+        : "body",
+    required: Boolean(value?.required),
     sourceType: value?.sourceType === "static" ? "static" : "block",
     sourceBlockId: value?.sourceBlockId?.trim() ?? "",
     sourceField: isApiFunctionSourceField(String(value?.sourceField ?? ""))
@@ -372,20 +402,23 @@ function normalizeApiFunction(value: Partial<BuilderApiFunction> | undefined, in
     ...value,
     id: value?.id ?? uid("fn"),
     name: value?.name?.trim() || `Function ${index + 1}`,
+    endpointId: value?.endpointId?.trim() || "ping",
     endpoint: value?.endpoint?.trim() || "/api/ping",
     method: isApiMethod(String(value?.method ?? ""))
       ? (String(value?.method) as BuilderBlockApiMethod)
       : "GET",
+    requiresAuth: Boolean(value?.requiresAuth),
+    authBlockId: value?.authBlockId?.trim() ?? "",
     headers: value?.headers ?? "",
     successMessage: value?.successMessage?.trim() ?? "",
-    properties: Array.isArray(value?.properties) && value.properties.length > 0
+    properties: Array.isArray(value?.properties)
       ? value.properties.map((property, propertyIndex) =>
           normalizeApiFunctionPropertyBinding({
             ...property,
             key: property?.key?.trim() || `value${propertyIndex + 1}`,
           }),
         )
-      : [createDefaultApiFunctionPropertyBinding()],
+      : [],
   } satisfies BuilderApiFunction;
 }
 
@@ -661,6 +694,7 @@ const TEMPLATE_DEFINITIONS: Record<BuilderAppTemplateId, TemplateDefinition> = {
     preview: ["Home", "Flexible blocks", "Custom flow"],
     pageCount: 1,
     brand: {
+      themePresetId: "midnight-card",
       primary: "#2563eb",
       secondary: "#0f172a",
       accent: "#38bdf8",
@@ -676,6 +710,7 @@ const TEMPLATE_DEFINITIONS: Record<BuilderAppTemplateId, TemplateDefinition> = {
     preview: ["Earn", "Redeem", "Wallet"],
     pageCount: 5,
     brand: {
+      themePresetId: "sunset-mobile",
       primary: "#ea580c",
       secondary: "#7c2d12",
       accent: "#f59e0b",
@@ -691,6 +726,7 @@ const TEMPLATE_DEFINITIONS: Record<BuilderAppTemplateId, TemplateDefinition> = {
     preview: ["Home", "Menu", "Checkout"],
     pageCount: 4,
     brand: {
+      themePresetId: "coastal-pay",
       primary: "#0f766e",
       secondary: "#134e4a",
       accent: "#38bdf8",
@@ -706,6 +742,7 @@ const TEMPLATE_DEFINITIONS: Record<BuilderAppTemplateId, TemplateDefinition> = {
     preview: ["Concierge", "Perks", "Access"],
     pageCount: 4,
     brand: {
+      themePresetId: "violet-club",
       primary: "#7c3aed",
       secondary: "#2e1065",
       accent: "#f472b6",
@@ -721,6 +758,7 @@ const TEMPLATE_DEFINITIONS: Record<BuilderAppTemplateId, TemplateDefinition> = {
     preview: ["Reorder", "Scan", "Wallet"],
     pageCount: 4,
     brand: {
+      themePresetId: "citrus-reorder",
       primary: "#b45309",
       secondary: "#422006",
       accent: "#fbbf24",
@@ -735,6 +773,10 @@ export const APP_TEMPLATES: BuilderAppTemplate[] = Object.values(TEMPLATE_DEFINI
 );
 
 function normalizeBrand(value: Partial<BuilderBrand> | undefined, appName: string) {
+  const fontPresetId =
+    value?.fontPresetId?.trim() ||
+    (value?.customFontSource ? UPLOADED_FONT_PRESET_ID : DEFAULT_FONT_PRESET_ID);
+
   return {
     appName,
     logo: (value?.logo?.trim() || getInitials(appName)).toUpperCase().slice(0, 3),
@@ -745,7 +787,17 @@ function normalizeBrand(value: Partial<BuilderBrand> | undefined, appName: strin
     surface: normalizeHex(value?.surface ?? "#fff7ed"),
     textColor: normalizeHex(value?.textColor ?? "#0f172a", "#0f172a"),
     cardBackground: normalizeHex(value?.cardBackground ?? "#ffffff", "#ffffff"),
-    fontFamily: value?.fontFamily?.trim() || "ui-sans-serif, system-ui, sans-serif",
+    themePresetId: value?.themePresetId?.trim() || DEFAULT_APP_THEME_PRESET_ID,
+    fontPresetId,
+    fontFamily: resolveFontFamily({
+      fontPresetId,
+      fontFamily: value?.fontFamily,
+      customFontName: value?.customFontName,
+      customFontSource: value?.customFontSource,
+    }),
+    customFontName: value?.customFontName?.trim() ?? "",
+    customFontSource: value?.customFontSource ?? "",
+    customFontFormat: value?.customFontFormat?.trim() ?? "",
     backgroundImage: value?.backgroundImage ?? "",
     heroImage: value?.heroImage ?? "",
     customCss: value?.customCss ?? "",

@@ -29,7 +29,7 @@ export function slugify(value: string, fallback = "app") {
   return slug || fallback;
 }
 
-function readFileAsDataUrl(file: File) {
+export function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));

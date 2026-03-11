@@ -113,6 +113,12 @@ export interface SiteBrandConfig {
   primary: string;
   secondary: string;
   accent: string;
+  themePresetId: string;
+  fontPresetId: string;
+  fontFamily: string;
+  customFontName?: string;
+  customFontSource?: string;
+  customFontFormat?: string;
   domain: string;
 }
 
@@ -214,6 +220,37 @@ export type BuilderExportBlockActionKind = "none" | "navigate" | "api";
 
 export type BuilderExportBlockApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
+export type BuilderApiParameterLocation = "path" | "query" | "body";
+
+export type BuilderApiParameterValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "array"
+  | "object";
+
+export interface BuilderServerApiParameter {
+  name: string;
+  label: string;
+  location: BuilderApiParameterLocation;
+  required: boolean;
+  valueType: BuilderApiParameterValueType;
+  description: string;
+}
+
+export interface BuilderServerApiEndpoint {
+  id: string;
+  category: string;
+  name: string;
+  description: string;
+  method: BuilderExportBlockApiMethod;
+  path: string;
+  requiresAuth: boolean;
+  allowedRoles: Role[];
+  params: BuilderServerApiParameter[];
+  successMessage?: string;
+}
+
 export type BuilderExportApiFunctionSourceField =
   | "text"
   | "helper"
@@ -224,6 +261,8 @@ export type BuilderExportApiFunctionSourceField =
 export interface BuilderExportApiFunctionPropertyBinding {
   id: string;
   key: string;
+  location: BuilderApiParameterLocation;
+  required: boolean;
   sourceType: "block" | "static";
   sourceBlockId: string;
   sourceField: BuilderExportApiFunctionSourceField;
@@ -233,8 +272,11 @@ export interface BuilderExportApiFunctionPropertyBinding {
 export interface BuilderExportApiFunction {
   id: string;
   name: string;
+  endpointId: string;
   endpoint: string;
   method: BuilderExportBlockApiMethod;
+  requiresAuth: boolean;
+  authBlockId: string;
   headers: string;
   successMessage: string;
   properties: BuilderExportApiFunctionPropertyBinding[];
@@ -282,7 +324,12 @@ export interface BuilderExportBrand {
   surface: string;
   textColor: string;
   cardBackground: string;
+  themePresetId: string;
+  fontPresetId: string;
   fontFamily: string;
+  customFontName?: string;
+  customFontSource?: string;
+  customFontFormat?: string;
   backgroundImage?: string;
   heroImage?: string;
   customCss: string;

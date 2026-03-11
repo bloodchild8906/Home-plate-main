@@ -95,6 +95,14 @@ import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  AssetField,
+  ColorField,
+  Field,
+  ImageAssetPreview,
+  Panel,
+  SpacingGroup,
+} from "@/components/mobile-builder/designer-primitives";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -105,14 +113,49 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { BuilderMauiExportResponse, type ApiResponse } from "@shared/api";
+import {
+  BuilderMauiExportResponse,
+  type ApiResponse,
+  type BuilderApiParameterLocation,
+  type BuilderServerApiEndpoint,
+} from "@shared/api";
 import { BrandMark } from "@/components/brand-mark";
+import {
+  applyServerEndpointToFunction,
+  buildApiFunctionRequest,
+  findAuthBlock,
+  findServerApiEndpoint,
+  listAuthBlocks,
+} from "@/lib/builder-api";
 import { getInitials, readImageFileAsDataUrl, readTextFile } from "@/lib/asset-utils";
 import { getContrastTextColor, mixHex } from "@/lib/color-utils";
+import {
+  buildUploadedFontFamily,
+  deriveFontName,
+  inferFontFormat,
+  readFontFileAsDataUrl,
+  syncFontAssets,
+} from "@/lib/font-utils";
+import { STATIC_RUNTIME } from "@/lib/static-runtime";
+import {
+  APP_THEME_PRESETS,
+  DEFAULT_FONT_PRESET_ID,
+  findAppThemePreset,
+  findFontOption,
+  FONT_OPTIONS,
+  UPLOADED_FONT_PRESET_ID,
+} from "@/lib/theme-presets";
 import { cn } from "@/lib/utils";
 import {
   createApiFunction,
@@ -124,7 +167,6 @@ import {
   type BuilderApiFunctionSourceField,
   type BuilderBrand,
   type BuilderBlock,
-  type BuilderBlockApiMethod,
   type BuilderBlockActionKind,
   type BuilderLayoutAlign,
   type BuilderLayoutDirection,
@@ -156,7 +198,6 @@ const CORE_LIBRARY: { type: BuilderBlockType; label: string; icon: ReactNode }[]
   { type: "auth", label: "Auth", icon: <KeyRound className="h-4 w-4" /> },
 ];
 
-const REQUEST_METHODS: BuilderBlockApiMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const API_SOURCE_FIELD_OPTIONS: { value: BuilderApiFunctionSourceField; label: string }[] = [
   { value: "text", label: "Text" },
   { value: "helper", label: "Helper" },
@@ -164,6 +205,11 @@ const API_SOURCE_FIELD_OPTIONS: { value: BuilderApiFunctionSourceField; label: s
   { value: "items", label: "Items" },
   { value: "htmlTag", label: "HTML tag" },
 ];
+const API_PARAMETER_LOCATION_LABELS: Record<BuilderApiParameterLocation, string> = {
+  path: "Path",
+  query: "Query",
+  body: "Body",
+};
 const LAYOUT_DISPLAY_OPTIONS: { value: BuilderLayoutDisplay; label: string }[] = [
   { value: "block", label: "Block" },
   { value: "flex", label: "Flex" },
@@ -730,10 +776,6 @@ function isInteractiveBlock(block: BuilderBlock) {
   return block.events.tap.kind !== "none";
 }
 
-function acceptsRequestBody(method: BuilderBlockApiMethod) {
-  return method !== "GET" && method !== "DELETE";
-}
-
 function parseRequestHeaders(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -818,68 +860,6 @@ function normalizeHtmlElementProps(value: Record<string, unknown>) {
     props[key] = propValue;
     return props;
   }, {});
-}
-
-function getBlockFieldValue(block: BuilderBlock, field: BuilderApiFunctionSourceField) {
-  switch (field) {
-    case "helper":
-      return block.helper ?? "";
-    case "points":
-      return block.points ?? 0;
-    case "items":
-      return block.items ?? [];
-    case "htmlTag":
-      return block.htmlTag ?? "";
-    case "text":
-    default:
-      return block.text ?? "";
-  }
-}
-
-function buildApiFunctionPayload(app: BuilderAppModel, fn: BuilderApiFunction) {
-  const blockMap = new Map(
-    app.pages.flatMap((page) => page.blocks.map((block) => [block.id, block] as const)),
-  );
-
-  return fn.properties.reduce<Record<string, unknown>>((payload, property) => {
-    const key = property.key.trim();
-    if (!key) {
-      return payload;
-    }
-
-    if (property.sourceType === "static") {
-      payload[key] = property.staticValue;
-      return payload;
-    }
-
-    const sourceBlock = blockMap.get(property.sourceBlockId);
-    payload[key] = sourceBlock ? getBlockFieldValue(sourceBlock, property.sourceField) : "";
-    return payload;
-  }, {});
-}
-
-function appendPayloadToEndpoint(endpoint: string, payload: Record<string, unknown>) {
-  const searchParams = new URLSearchParams();
-
-  Object.entries(payload).forEach(([key, value]) => {
-    if (value === undefined || value === null) {
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      searchParams.set(key, value.join(","));
-      return;
-    }
-
-    searchParams.set(key, String(value));
-  });
-
-  const query = searchParams.toString();
-  if (!query) {
-    return endpoint;
-  }
-
-  return endpoint.includes("?") ? `${endpoint}&${query}` : `${endpoint}?${query}`;
 }
 
 function scopeCssRule(rule: CSSRule, scope: string): string {
@@ -1057,6 +1037,9 @@ export default function MobileAppDesigner() {
   const [dragPageId, setDragPageId] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [selectedApiFunctionId, setSelectedApiFunctionId] = useState(app?.apiFunctions[0]?.id ?? "");
+  const [serverApiEndpoints, setServerApiEndpoints] = useState<BuilderServerApiEndpoint[]>([]);
+  const [isLoadingServerApiEndpoints, setIsLoadingServerApiEndpoints] = useState(true);
+  const [serverApiEndpointsError, setServerApiEndpointsError] = useState("");
   const [toolboxQuery, setToolboxQuery] = useState("");
   const [previewWidth, setPreviewWidth] = useState(0);
   const previewViewportRef = useRef<HTMLElement | null>(null);
@@ -1073,6 +1056,50 @@ export default function MobileAppDesigner() {
 
     observer.observe(node);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadServerApiEndpoints = async () => {
+      setIsLoadingServerApiEndpoints(true);
+      setServerApiEndpointsError("");
+
+      try {
+        const response = await fetch("/api/builder/api-endpoints");
+        if (!response.ok) {
+          throw new Error("Failed to load server API endpoints");
+        }
+
+        const payload =
+          (await response.json()) as ApiResponse<BuilderServerApiEndpoint[]>;
+
+        if (!cancelled) {
+          setServerApiEndpoints(
+            payload.success && Array.isArray(payload.data) ? payload.data : [],
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setServerApiEndpoints([]);
+          setServerApiEndpointsError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load server API endpoints",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingServerApiEndpoints(false);
+        }
+      }
+    };
+
+    void loadServerApiEndpoints();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1105,6 +1132,20 @@ export default function MobileAppDesigner() {
     }
   }, [app, selectedApiFunctionId]);
 
+  useEffect(() => {
+    if (!app) {
+      return;
+    }
+
+    syncFontAssets(`builder-app-${app.id}`, app.brand);
+  }, [
+    app,
+    app?.brand.customFontFormat,
+    app?.brand.customFontName,
+    app?.brand.customFontSource,
+    app?.brand.fontPresetId,
+  ]);
+
   if (!app) {
     return <Navigate to="/builder" replace />;
   }
@@ -1123,7 +1164,31 @@ export default function MobileAppDesigner() {
     () => scopeCustomCss(app.brand.customCss, `[data-builder-preview="${app.id}"]`),
     [app.brand.customCss, app.id],
   );
+  const selectedThemePreset = findAppThemePreset(app.brand.themePresetId);
+  const selectedFontValue = app.brand.customFontSource
+    ? UPLOADED_FONT_PRESET_ID
+    : app.brand.fontPresetId;
+  const selectedFontPreset = findFontOption(
+    selectedFontValue === UPLOADED_FONT_PRESET_ID
+      ? DEFAULT_FONT_PRESET_ID
+      : app.brand.fontPresetId,
+  );
   const selectedApiFunction = app.apiFunctions.find((item) => item.id === selectedApiFunctionId) ?? null;
+  const authBlocks = useMemo(() => listAuthBlocks(app), [app]);
+  const selectedServerApiEndpoint = useMemo(
+    () =>
+      selectedApiFunction
+        ? findServerApiEndpoint(selectedApiFunction, serverApiEndpoints)
+        : null,
+    [selectedApiFunction, serverApiEndpoints],
+  );
+  const selectedApiAuthBlock = useMemo(
+    () =>
+      selectedApiFunction
+        ? findAuthBlock(app, selectedApiFunction.authBlockId)
+        : null,
+    [app, selectedApiFunction],
+  );
   const filteredHtmlTags = useMemo(() => {
     const query = toolboxQuery.trim().toLowerCase();
     if (!query) {
@@ -1230,6 +1295,83 @@ export default function MobileAppDesigner() {
     }
   };
 
+  const applyThemePreset = (presetId: string) => {
+    const theme = findAppThemePreset(presetId);
+    updateCurrentApp((current) => ({
+      ...current,
+      brand: {
+        ...current.brand,
+        themePresetId: theme.id,
+        primary: theme.theme.primary,
+        secondary: theme.theme.secondary,
+        accent: theme.theme.accent,
+        surface: theme.theme.surface,
+        textColor: theme.theme.textColor,
+        cardBackground: theme.theme.cardBackground,
+      },
+    }));
+    toast.success(`${theme.label} applied`);
+  };
+
+  const applyFontPreset = (fontId: string) => {
+    if (fontId === UPLOADED_FONT_PRESET_ID) {
+      return;
+    }
+
+    const font = findFontOption(fontId);
+    updateCurrentApp((current) => ({
+      ...current,
+      brand: {
+        ...current.brand,
+        fontPresetId: font.id,
+        fontFamily: font.family,
+        customFontName: "",
+        customFontSource: "",
+        customFontFormat: "",
+      },
+    }));
+  };
+
+  const uploadFont = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const fontName = deriveFontName(file.name);
+      const fontSource = await readFontFileAsDataUrl(file);
+      updateCurrentApp((current) => ({
+        ...current,
+        brand: {
+          ...current.brand,
+          fontPresetId: UPLOADED_FONT_PRESET_ID,
+          fontFamily: buildUploadedFontFamily(fontName),
+          customFontName: fontName,
+          customFontSource: fontSource,
+          customFontFormat: inferFontFormat(file),
+        },
+      }));
+      toast.success("App font uploaded");
+    } catch {
+      toast.error("Unable to read that font file");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const clearUploadedFont = () => {
+    updateCurrentApp((current) => ({
+      ...current,
+      brand: {
+        ...current.brand,
+        fontPresetId: selectedFontPreset.id || DEFAULT_FONT_PRESET_ID,
+        fontFamily: selectedFontPreset.family,
+        customFontName: "",
+        customFontSource: "",
+        customFontFormat: "",
+      },
+    }));
+  };
+
   const updateSelectedApiFunction = (updater: (item: BuilderApiFunction) => BuilderApiFunction) => {
     if (!selectedApiFunction) return;
     updateCurrentApp((current) => ({
@@ -1240,12 +1382,51 @@ export default function MobileAppDesigner() {
     }));
   };
 
+  const applyEndpointToSelectedFunction = (endpointId: string) => {
+    if (!selectedApiFunction) {
+      return;
+    }
+
+    const endpoint = serverApiEndpoints.find((entry) => entry.id === endpointId);
+    if (!endpoint) {
+      return;
+    }
+
+    let addedAuthBlock = false;
+    updateCurrentApp((current) => {
+      const result = applyServerEndpointToFunction(
+        current,
+        selectedApiFunction.id,
+        endpoint,
+      );
+      addedAuthBlock = result.addedAuthBlock;
+      return result.app;
+    });
+
+    if (addedAuthBlock) {
+      toast.success("Auth block added for the protected API endpoint");
+    }
+  };
+
   const addApiFunction = () => {
     const next = createApiFunction(app.apiFunctions.length);
-    updateCurrentApp((current) => ({
-      ...current,
-      apiFunctions: [...current.apiFunctions, next],
-    }));
+    updateCurrentApp((current) => {
+      const initialApp = {
+        ...current,
+        apiFunctions: [...current.apiFunctions, next],
+      };
+      const defaultEndpoint = serverApiEndpoints[0];
+
+      if (!defaultEndpoint) {
+        return initialApp;
+      }
+
+      return applyServerEndpointToFunction(
+        initialApp,
+        next.id,
+        defaultEndpoint,
+      ).app;
+    });
     setSelectedApiFunctionId(next.id);
   };
 
@@ -1310,24 +1491,45 @@ export default function MobileAppDesigner() {
     setPendingActionId(item.id);
 
     try {
+      const endpointMeta = findServerApiEndpoint(apiFunction, serverApiEndpoints);
+      const effectiveRequiresAuth =
+        endpointMeta?.requiresAuth ?? apiFunction.requiresAuth;
+      const authBlock = effectiveRequiresAuth
+        ? findAuthBlock(app, apiFunction.authBlockId)
+        : null;
+
+      if (effectiveRequiresAuth && !authBlock) {
+        throw new Error(
+          "Add an Auth block before calling this protected API endpoint",
+        );
+      }
+
       const headers = parseRequestHeaders(apiFunction.headers);
-      const payload = buildApiFunctionPayload(app, apiFunction);
-      const endpoint = acceptsRequestBody(apiFunction.method)
-        ? apiFunction.endpoint
-        : appendPayloadToEndpoint(apiFunction.endpoint, payload);
+      const requestData = buildApiFunctionRequest(app, apiFunction, endpointMeta);
+      if (requestData.missingRequired.length > 0) {
+        throw new Error(
+          `Set values for required API params: ${requestData.missingRequired.join(", ")}`,
+        );
+      }
+
       const request: RequestInit = {
         method: apiFunction.method,
         headers,
+        credentials: effectiveRequiresAuth ? "include" : "same-origin",
       };
 
-      if (acceptsRequestBody(apiFunction.method)) {
-        request.body = JSON.stringify(payload);
+      if (
+        apiFunction.method !== "GET" &&
+        apiFunction.method !== "DELETE" &&
+        Object.keys(requestData.bodyPayload).length > 0
+      ) {
+        request.body = JSON.stringify(requestData.bodyPayload);
         if (!Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
           headers["Content-Type"] = "application/json";
         }
       }
 
-      const response = await fetch(endpoint, request);
+      const response = await fetch(requestData.endpoint, request);
       const responseText = (await response.text()).trim();
       if (!response.ok) {
         throw new Error(responseText || `Request failed with status ${response.status}`);
@@ -1337,7 +1539,7 @@ export default function MobileAppDesigner() {
       toast.success(
         action.successMessage.trim()
           || apiFunction.successMessage.trim()
-          || `${apiFunction.method} ${apiFunction.endpoint} completed`,
+          || `${apiFunction.method} ${requestData.endpoint} completed`,
         detail ? { description: detail } : undefined,
       );
     } catch (error) {
@@ -1373,6 +1575,7 @@ export default function MobileAppDesigner() {
         <>
           <Button variant="outline" onClick={() => navigate("/builder")}>Back to apps</Button>
           <Button
+            disabled={STATIC_RUNTIME}
             onClick={async () => {
               const response = await fetch("/api/builder/export-maui", {
                 method: "POST",
@@ -1388,7 +1591,7 @@ export default function MobileAppDesigner() {
             }}
           >
             <Download className="mr-2 h-4 w-4" />
-            Build MAUI app
+            {STATIC_RUNTIME ? "MAUI export requires server mode" : "Build MAUI app"}
           </Button>
           <Button variant="outline" onClick={() => setPreview((current) => !current)}>
             <Eye className="mr-2 h-4 w-4" />
@@ -1486,7 +1689,10 @@ export default function MobileAppDesigner() {
                   </div>
                 </TabsContent>
                 <TabsContent value="branding" className="mt-4 space-y-4">
-                  <div className="rounded-3xl border border-border/60 bg-muted/15 p-4">
+                  <div
+                    className="rounded-3xl border border-border/60 bg-muted/15 p-4"
+                    style={{ fontFamily: app.brand.fontFamily }}
+                  >
                     <div className="flex items-center gap-3">
                       <BrandMark
                         image={app.brand.logoImage}
@@ -1501,6 +1707,47 @@ export default function MobileAppDesigner() {
                         <div className="font-black">{app.brand.appName}</div>
                         <div className="text-sm text-muted-foreground">{app.brand.domain}</div>
                       </div>
+                    </div>
+                  </div>
+                  <div className="rounded-[2rem] border border-border/60 bg-background/80 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black">App themes</div>
+                        <p className="text-sm text-muted-foreground">
+                          Pick a starting palette, then adjust colors, fonts, and images and save the modified app theme.
+                        </p>
+                      </div>
+                      <Badge className="rounded-full px-3 py-1">{selectedThemePreset.label}</Badge>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {APP_THEME_PRESETS.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          className={cn(
+                            "rounded-3xl border border-border/60 bg-background/90 p-4 text-left transition hover:border-primary/60 hover:shadow-lg",
+                            app.brand.themePresetId === theme.id &&
+                              "border-primary bg-primary/5 shadow-[0_18px_48px_-28px_hsl(var(--primary)/0.55)]",
+                          )}
+                          onClick={() => applyThemePreset(theme.id)}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-black">{theme.label}</div>
+                            <div className="flex gap-1.5">
+                              {theme.swatches.map((swatch) => (
+                                <span
+                                  key={`${theme.id}-${swatch}`}
+                                  className="h-4 w-4 rounded-full border border-white/60 shadow-sm"
+                                  style={{ backgroundColor: swatch }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            {theme.description}
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                   <Field label="App name">
@@ -1537,13 +1784,97 @@ export default function MobileAppDesigner() {
                     <ColorField label="Text" value={app.brand.textColor} onChange={(value) => updateCurrentApp((current) => ({ ...current, brand: { ...current.brand, textColor: value } }))} />
                     <ColorField label="Cards" value={app.brand.cardBackground} onChange={(value) => updateCurrentApp((current) => ({ ...current, brand: { ...current.brand, cardBackground: value } }))} />
                   </div>
-                  <Field label="Font family">
-                    <Input
-                      value={app.brand.fontFamily}
-                      onChange={(event) => updateCurrentApp((current) => ({ ...current, brand: { ...current.brand, fontFamily: event.target.value } }))}
-                      placeholder="ui-sans-serif, system-ui, sans-serif"
-                    />
-                  </Field>
+                  <div className="rounded-[2rem] border border-border/60 bg-background/80 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black">App fonts</div>
+                        <p className="text-sm text-muted-foreground">
+                          Use a preset, upload a custom font file, or override the stack manually.
+                        </p>
+                      </div>
+                      <Badge className="rounded-full px-3 py-1">
+                        {selectedFontValue === UPLOADED_FONT_PRESET_ID
+                          ? app.brand.customFontName || "Uploaded font"
+                          : selectedFontPreset.label}
+                      </Badge>
+                    </div>
+                    <div className="space-y-4">
+                      <Field label="Preset font">
+                        <Select value={selectedFontValue} onValueChange={applyFontPreset}>
+                          <SelectTrigger className="rounded-2xl">
+                            <SelectValue placeholder="Choose a font" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {app.brand.customFontSource ? (
+                              <SelectItem value={UPLOADED_FONT_PRESET_ID}>
+                                Uploaded: {app.brand.customFontName || "Custom font"}
+                              </SelectItem>
+                            ) : null}
+                            {FONT_OPTIONS.map((font) => (
+                              <SelectItem key={font.id} value={font.id}>
+                                {font.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <div
+                        className="rounded-3xl border border-border/60 bg-background/90 p-5"
+                        style={{ fontFamily: app.brand.fontFamily }}
+                      >
+                        <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                          App font preview
+                        </div>
+                        <div className="mt-3 text-2xl font-black tracking-tight">
+                          {app.brand.appName}
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Headers, preview cards, buttons, and generated app styles use this saved font stack.
+                        </p>
+                      </div>
+                      <Field label="Font stack">
+                        <Input
+                          value={app.brand.fontFamily}
+                          onChange={(event) => updateCurrentApp((current) => ({ ...current, brand: { ...current.brand, fontFamily: event.target.value } }))}
+                          placeholder={selectedFontPreset.family}
+                        />
+                      </Field>
+                      <div className="rounded-3xl border border-border/60 bg-muted/10 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold">Uploaded font</div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {app.brand.customFontName || "No uploaded font saved for this app"}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-border/60 bg-background px-3 py-2 text-sm font-semibold text-foreground">
+                              <Type className="h-4 w-4" />
+                              Upload font
+                              <input
+                                type="file"
+                                accept=".woff,.woff2,.ttf,.otf,font/woff,font/woff2,font/ttf,font/otf"
+                                className="sr-only"
+                                onChange={(event) => void uploadFont(event)}
+                              />
+                            </Label>
+                            {app.brand.customFontSource ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-2xl"
+                                onClick={clearUploadedFont}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Clear
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <AssetField
                     label="App background image"
                     preview={<ImageAssetPreview source={app.brand.backgroundImage} label="Background" fallback="BG" />}
@@ -1625,11 +1956,30 @@ export default function MobileAppDesigner() {
                 </TabsContent>
                 <TabsContent value="api" className="mt-4 space-y-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">Define named API functions and map their properties from other blocks in the app.</p>
+                    <p className="text-sm text-muted-foreground">Define named API functions from server endpoints and map their params from other blocks in the app.</p>
                     <Button size="sm" onClick={addApiFunction}>
                       <Plus className="mr-2 h-4 w-4" />
                       New function
                     </Button>
+                  </div>
+                  <div className="rounded-3xl border border-border/60 bg-background/80 p-4">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Server endpoint catalog</div>
+                    <p className="text-sm text-muted-foreground">
+                      API functions now come from live server endpoint definitions. Required params, auth rules, and route shapes are pulled from the server automatically.
+                    </p>
+                    {isLoadingServerApiEndpoints ? (
+                      <div className="mt-3 text-xs text-muted-foreground">Loading endpoint list...</div>
+                    ) : null}
+                    {!isLoadingServerApiEndpoints && serverApiEndpointsError ? (
+                      <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                        {serverApiEndpointsError}
+                      </div>
+                    ) : null}
+                    {!isLoadingServerApiEndpoints && !serverApiEndpointsError ? (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        {serverApiEndpoints.length} server endpoints available
+                      </div>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     {app.apiFunctions.map((fn) => (
@@ -1661,34 +2011,122 @@ export default function MobileAppDesigner() {
                           onChange={(event) => updateSelectedApiFunction((item) => ({ ...item, name: event.target.value }))}
                         />
                       </Field>
-                      <div className="grid gap-4 sm:grid-cols-[110px_minmax(0,1fr)]">
+                      <Field label="Server endpoint">
+                        <select
+                          value={selectedServerApiEndpoint?.id ?? ""}
+                          onChange={(event) => applyEndpointToSelectedFunction(event.target.value)}
+                          className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        >
+                          <option value="">Select a server endpoint</option>
+                          {Array.from(new Set(serverApiEndpoints.map((entry) => entry.category))).map((category) => (
+                            <optgroup key={category} label={category}>
+                              {serverApiEndpoints
+                                .filter((entry) => entry.category === category)
+                                .map((endpoint) => (
+                                  <option key={endpoint.id} value={endpoint.id}>
+                                    {endpoint.method} {endpoint.path} - {endpoint.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="grid gap-4 sm:grid-cols-2">
                         <Field label="Method">
-                          <select
-                            value={selectedApiFunction.method}
-                            onChange={(event) => updateSelectedApiFunction((item) => ({ ...item, method: event.target.value as BuilderBlockApiMethod }))}
-                            className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
-                          >
-                            {REQUEST_METHODS.map((method) => (
-                              <option key={method} value={method}>
-                                {method}
-                              </option>
-                            ))}
-                          </select>
+                          <Input value={selectedApiFunction.method} readOnly />
                         </Field>
-                        <Field label="Endpoint">
-                          <Input
-                            value={selectedApiFunction.endpoint}
-                            onChange={(event) => updateSelectedApiFunction((item) => ({ ...item, endpoint: event.target.value }))}
-                            placeholder="/api/ping"
-                          />
+                        <Field label="Resolved path">
+                          <Input value={selectedApiFunction.endpoint} readOnly />
                         </Field>
                       </div>
+                      {selectedServerApiEndpoint ? (
+                        <div className="rounded-2xl border border-border/60 bg-background/80 p-4 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                              {selectedServerApiEndpoint.category}
+                            </Badge>
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                              {selectedServerApiEndpoint.method}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className="rounded-full px-3 py-1"
+                            >
+                              {selectedServerApiEndpoint.requiresAuth
+                                ? "Protected endpoint"
+                                : "Public endpoint"}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 font-semibold text-foreground">
+                            {selectedServerApiEndpoint.name}
+                          </div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {selectedServerApiEndpoint.description}
+                          </div>
+                          {selectedServerApiEndpoint.allowedRoles.length > 0 ? (
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              Allowed roles: {selectedServerApiEndpoint.allowedRoles.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {(selectedServerApiEndpoint?.requiresAuth || selectedApiFunction.requiresAuth) ? (
+                        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+                          <div className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Protected API auth</div>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            This endpoint uses the app auth block automatically and includes credentials on the request. If no auth block exists, one is added when you pick the endpoint.
+                          </p>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <div className="rounded-2xl border border-border/60 bg-background/80 px-3 py-2 text-sm">
+                              {selectedApiAuthBlock
+                                ? `${selectedApiAuthBlock.pageName} / ${selectedApiAuthBlock.block.name}`
+                                : "No auth block connected"}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-2xl"
+                              onClick={() => {
+                                const endpoint = selectedServerApiEndpoint;
+                                if (!endpoint) {
+                                  return;
+                                }
+                                applyEndpointToSelectedFunction(endpoint.id);
+                              }}
+                            >
+                              Sync auth block
+                            </Button>
+                          </div>
+                          {authBlocks.length > 1 ? (
+                            <Field label="Auth block">
+                              <select
+                                value={selectedApiAuthBlock?.block.id ?? ""}
+                                onChange={(event) =>
+                                  updateSelectedApiFunction((item) => ({
+                                    ...item,
+                                    authBlockId: event.target.value,
+                                  }))
+                                }
+                                className="mt-3 h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                              >
+                                <option value="">Select auth block</option>
+                                {authBlocks.map((entry) => (
+                                  <option key={entry.block.id} value={entry.block.id}>
+                                    {entry.pageName} / {entry.block.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <Field label="Headers">
                         <Textarea
                           className="min-h-[90px]"
                           value={selectedApiFunction.headers}
                           onChange={(event) => updateSelectedApiFunction((item) => ({ ...item, headers: event.target.value }))}
-                          placeholder={"{\n  \"Authorization\": \"Bearer token\"\n}"}
+                          placeholder={"{\n  \"X-App-Context\": \"mobile-builder\"\n}"}
                         />
                       </Field>
                       <Field label="Default success message">
@@ -1701,8 +2139,8 @@ export default function MobileAppDesigner() {
                       <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Function properties</div>
-                            <div className="text-xs text-muted-foreground">Map request fields from other app elements or static values.</div>
+                            <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Function params</div>
+                            <div className="text-xs text-muted-foreground">Retrieved params are mapped from server endpoint metadata. Map each one to a block property or a static value.</div>
                           </div>
                           <Button
                             type="button"
@@ -1711,20 +2149,36 @@ export default function MobileAppDesigner() {
                             className="rounded-2xl"
                             onClick={() => updateSelectedApiFunction((item) => ({
                               ...item,
-                              properties: [...item.properties, createApiFunctionPropertyBinding({ key: `value${item.properties.length + 1}` })],
+                              properties: [...item.properties, createApiFunctionPropertyBinding({ key: `value${item.properties.length + 1}`, location: item.method === "GET" || item.method === "DELETE" ? "query" : "body" })],
                             }))}
                           >
                             <Plus className="mr-2 h-4 w-4" />
-                            Add property
+                            Add custom param
                           </Button>
                         </div>
                         <div className="space-y-3">
                           {selectedApiFunction.properties.map((property) => (
                             <div key={property.id} className="space-y-3 rounded-2xl border border-border/60 bg-muted/10 p-3">
-                              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
-                                <Field label="Key">
+                              {(() => {
+                                const serverParam =
+                                  selectedServerApiEndpoint?.params.find(
+                                    (param) =>
+                                      param.name === property.key &&
+                                      param.location === property.location,
+                                  ) ??
+                                  selectedServerApiEndpoint?.params.find(
+                                    (param) => param.name === property.key,
+                                  ) ??
+                                  null;
+                                const isServerParam = Boolean(serverParam);
+
+                                return (
+                                  <>
+                              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_120px_auto]">
+                                <Field label={isServerParam ? "Param" : "Key"}>
                                   <Input
                                     value={property.key}
+                                    readOnly={isServerParam}
                                     onChange={(event) => updateSelectedApiFunction((item) => ({
                                       ...item,
                                       properties: item.properties.map((entry) =>
@@ -1732,6 +2186,34 @@ export default function MobileAppDesigner() {
                                       ),
                                     }))}
                                   />
+                                </Field>
+                                <Field label="Location">
+                                  {isServerParam ? (
+                                    <Input
+                                      value={API_PARAMETER_LOCATION_LABELS[serverParam.location]}
+                                      readOnly
+                                    />
+                                  ) : (
+                                    <select
+                                      value={property.location}
+                                      onChange={(event) => updateSelectedApiFunction((item) => ({
+                                        ...item,
+                                        properties: item.properties.map((entry) =>
+                                          entry.id === property.id
+                                            ? {
+                                                ...entry,
+                                                location: event.target.value as BuilderApiParameterLocation,
+                                              }
+                                            : entry,
+                                        ),
+                                      }))}
+                                      className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                                    >
+                                      <option value="path">Path</option>
+                                      <option value="query">Query</option>
+                                      <option value="body">Body</option>
+                                    </select>
+                                  )}
                                 </Field>
                                 <Field label="Source">
                                   <select
@@ -1756,17 +2238,21 @@ export default function MobileAppDesigner() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-10 w-10 rounded-2xl"
+                                    disabled={isServerParam}
                                     onClick={() => updateSelectedApiFunction((item) => ({
                                       ...item,
-                                      properties: item.properties.length > 1
-                                        ? item.properties.filter((entry) => entry.id !== property.id)
-                                        : item.properties,
+                                      properties: item.properties.filter((entry) => entry.id !== property.id),
                                     }))}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
                               </div>
+                              {serverParam ? (
+                                <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                  {serverParam.required ? "Required" : "Optional"} {API_PARAMETER_LOCATION_LABELS[serverParam.location].toLowerCase()} param. {serverParam.description}
+                                </div>
+                              ) : null}
                               {property.sourceType === "block" ? (
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <Field label="Source block">
@@ -1798,7 +2284,9 @@ export default function MobileAppDesigner() {
                                     </select>
                                   </Field>
                                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 p-3 text-xs leading-5 text-muted-foreground">
-                                    Function properties always use the latest values from the referenced block when the event runs.
+                                    {serverParam
+                                      ? "This server param always uses the latest value from the referenced block when the event runs."
+                                      : "Custom params also use the latest value from the referenced block when the event runs."}
                                   </div>
                                 </div>
                               ) : (
@@ -1814,8 +2302,18 @@ export default function MobileAppDesigner() {
                                   />
                                 </Field>
                               )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           ))}
+                          {selectedApiFunction.properties.length === 0 ? (
+                            <div className="rounded-2xl border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
+                              {selectedServerApiEndpoint
+                                ? "This endpoint has no params. Add a custom param only if the handler accepts extra request data."
+                                : "Select a server endpoint to retrieve its params."}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -2362,124 +2860,6 @@ export default function MobileAppDesigner() {
   );
 }
 
-function Panel({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-[2rem] border border-border/60 bg-card/90 shadow-xl">
-      <div className="border-b border-border/60 p-5">
-        <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">{eyebrow}</div>
-        <h2 className="mt-2 text-xl font-black tracking-tight">{title}</h2>
-      </div>
-      <div className="p-5">{children}</div>
-    </section>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function ColorField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">{label}</Label>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-border/60 bg-background" />
-    </div>
-  );
-}
-
-function AssetField({
-  label,
-  preview,
-  actionLabel,
-  onChange,
-  onClear,
-}: {
-  label: string;
-  preview: ReactNode;
-  actionLabel: string;
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onClear?: () => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">{label}</Label>
-      <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/15 p-3">
-        {preview}
-        <div className="flex flex-wrap gap-2">
-          <Label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-border/60 bg-background px-3 py-2 text-sm font-semibold text-foreground">
-            <ImagePlus className="h-4 w-4" />
-            {actionLabel}
-            <input type="file" accept="image/*" className="sr-only" onChange={onChange} />
-          </Label>
-          {onClear ? (
-            <Button type="button" variant="ghost" size="sm" className="rounded-2xl" onClick={onClear}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Clear
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ImageAssetPreview({
-  source,
-  label,
-  fallback,
-}: {
-  source?: string;
-  label: string;
-  fallback: string;
-}) {
-  return source ? (
-    <img src={source} alt={label} className="h-14 w-20 rounded-2xl border border-border/60 object-cover" />
-  ) : (
-    <div className="flex h-14 w-20 items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-      {fallback}
-    </div>
-  );
-}
-
-function SpacingGroup({
-  label,
-  layout,
-  fields,
-  onChange,
-}: {
-  label: string;
-  layout: BuilderBlockLayout;
-  fields: { key: keyof BuilderBlockLayout; label: string }[];
-  onChange: (key: keyof BuilderBlockLayout, value: number) => void;
-}) {
-  return (
-    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-3">
-      <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">{label}</div>
-      <div className="grid grid-cols-2 gap-3">
-        {fields.map((field) => (
-          <div key={field.key} className="space-y-1">
-            <Label className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{field.label}</Label>
-            <Input type="number" min="0" value={layout[field.key]} onChange={(event) => onChange(field.key, Number(event.target.value))} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function createPreviewSurfaceStyle(brand: BuilderBrand): CSSProperties {
   const highlight = mixHex(brand.surface, "#ffffff", 0.16);
   return {
@@ -2497,7 +2877,8 @@ function createPreviewSurfaceStyle(brand: BuilderBrand): CSSProperties {
 
 function createPreviewHeroStyle(brand: BuilderBrand): CSSProperties {
   return {
-    background: brand.heroImage
+    backgroundColor: brand.secondary,
+    backgroundImage: brand.heroImage
       ? `linear-gradient(145deg, ${brand.secondary}de, ${brand.primary}c8), url(${brand.heroImage})`
       : `linear-gradient(145deg, ${brand.secondary}, ${brand.primary})`,
     backgroundPosition: "center",

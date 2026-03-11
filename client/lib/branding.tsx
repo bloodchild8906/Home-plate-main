@@ -14,6 +14,12 @@ import {
   normalizeHex,
 } from "@/lib/color-utils";
 import { getInitials } from "@/lib/asset-utils";
+import { resolveFontFamily, syncFontAssets } from "@/lib/font-utils";
+import {
+  DEFAULT_FONT_PRESET_ID,
+  DEFAULT_PLATFORM_THEME_PRESET_ID,
+  UPLOADED_FONT_PRESET_ID,
+} from "@/lib/theme-presets";
 
 export type SiteBrand = SiteBrandConfig;
 
@@ -26,6 +32,12 @@ const DEFAULT_BRAND: SiteBrand = {
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
+  themePresetId: DEFAULT_PLATFORM_THEME_PRESET_ID,
+  fontPresetId: DEFAULT_FONT_PRESET_ID,
+  fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
+  customFontName: "",
+  customFontSource: "",
+  customFontFormat: "",
   domain: "homeplate.app",
 };
 
@@ -42,6 +54,9 @@ const BrandingContext = createContext<BrandingContextValue | undefined>(undefine
 function normalizeBrand(value?: Partial<SiteBrand>) {
   const nextName = value?.name?.trim() || DEFAULT_BRAND.name;
   const nextLogo = value?.logo?.trim() || getInitials(nextName);
+  const fontPresetId =
+    value?.fontPresetId?.trim() ||
+    (value?.customFontSource ? UPLOADED_FONT_PRESET_ID : DEFAULT_FONT_PRESET_ID);
 
   return {
     ...DEFAULT_BRAND,
@@ -54,6 +69,17 @@ function normalizeBrand(value?: Partial<SiteBrand>) {
     primary: normalizeHex(value?.primary ?? DEFAULT_BRAND.primary),
     secondary: normalizeHex(value?.secondary ?? DEFAULT_BRAND.secondary),
     accent: normalizeHex(value?.accent ?? DEFAULT_BRAND.accent),
+    themePresetId: value?.themePresetId?.trim() || DEFAULT_BRAND.themePresetId,
+    fontPresetId,
+    fontFamily: resolveFontFamily({
+      fontPresetId,
+      fontFamily: value?.fontFamily,
+      customFontName: value?.customFontName,
+      customFontSource: value?.customFontSource,
+    }),
+    customFontName: value?.customFontName?.trim() ?? "",
+    customFontSource: value?.customFontSource ?? "",
+    customFontFormat: value?.customFontFormat?.trim() ?? "",
     domain: value?.domain?.trim() || DEFAULT_BRAND.domain,
   } satisfies SiteBrand;
 }
@@ -178,6 +204,9 @@ export function BrandingProvider({ children }: PropsWithChildren) {
       hexToHsl(mixHex(nextBrand.secondary, "#ffffff", 0.8)),
     );
     root.style.setProperty("--sidebar-ring", hexToHsl(nextBrand.primary));
+    root.style.setProperty("--site-font-family", nextBrand.fontFamily);
+    root.style.setProperty("--site-heading-font-family", nextBrand.fontFamily);
+    syncFontAssets("site-brand", nextBrand);
 
     document.title = `${nextBrand.name} Control`;
     ensureFavicon(nextBrand.faviconImage || nextBrand.logoImage || "/favicon.ico");

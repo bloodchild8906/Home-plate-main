@@ -114,6 +114,25 @@ function escapeXml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+function escapeCss(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function createCustomFontFace(brand: BuilderExportApp["brand"]) {
+  if (!brand.customFontSource || !brand.customFontName) {
+    return "";
+  }
+
+  return `@font-face {
+  font-family: "${escapeCss(brand.customFontName)}";
+  src: url("${escapeCss(brand.customFontSource)}")${
+    brand.customFontFormat ? ` format("${escapeCss(brand.customFontFormat)}")` : ""
+  };
+  font-display: swap;
+}
+`;
+}
+
 function generateMainLayout(app: BuilderExportApp) {
   return `@inherits LayoutComponentBase
 
@@ -189,7 +208,7 @@ function createBlockInlineStyle(block: BuilderExportApp["pages"][number]["blocks
 }
 
 function generateMainLayoutCss(app: BuilderExportApp) {
-  return `.maui-app-shell {
+  return `${createCustomFontFace(app.brand)}.maui-app-shell {
   min-height: 100vh;
   background: ${createAppBackground(app.brand)};
   background-position: center;
@@ -438,6 +457,7 @@ ${pagesCode}
 }
 
 <style>
+    ${createCustomFontFace(app.brand)}
     .phone-shell {
         min-height: 100vh;
         display: flex;

@@ -10,6 +10,7 @@ import * as membersController from "./routes/members";
 import * as brandingController from "./routes/branding";
 import * as analyticsController from "./routes/analytics";
 import * as builderExportController from "./routes/builder-export";
+import * as builderApiCatalogController from "./routes/builder-api-catalog";
 import * as siteConfigController from "./routes/site-config";
 import * as builderAppsController from "./routes/builder-apps";
 import * as usersController from "./routes/users";
@@ -78,6 +79,7 @@ export function createServer() {
   app.get("/api/analytics/summary", requireRole("admin", "analyst"), analyticsController.getAnalyticsSummary);
 
   // ============ BUILDER APP ROUTES ============
+  app.get("/api/builder/api-endpoints", requireRole("admin", "designer"), builderApiCatalogController.getBuilderApiEndpoints);
   app.get("/api/builder/apps", requireRole("admin", "designer"), builderAppsController.getBuilderApps);
   app.put("/api/builder/apps", requireRole("admin", "designer"), builderAppsController.replaceBuilderApps);
 

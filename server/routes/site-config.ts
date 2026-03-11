@@ -25,6 +25,12 @@ const siteBrandSchema = z.object({
   primary: z.string().trim().min(4),
   secondary: z.string().trim().min(4),
   accent: z.string().trim().min(4),
+  themePresetId: z.string().trim().min(1),
+  fontPresetId: z.string().trim().min(1),
+  fontFamily: z.string().trim().min(1),
+  customFontName: z.string().optional().default(""),
+  customFontSource: z.string().optional().default(""),
+  customFontFormat: z.string().optional().default(""),
   domain: z.string().trim().min(1),
 });
 

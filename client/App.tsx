@@ -7,8 +7,9 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
 import { BrandingProvider } from "@/lib/branding";
+import { installStaticRuntime, STATIC_RUNTIME } from "@/lib/static-runtime";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import { ProtectedRoute } from "@/components/protected-route";
 
 const Index = lazy(() => import("./pages/Index"));
@@ -26,6 +27,8 @@ const Login = lazy(() => import("./pages/Login"));
 const BuilderWorkspaceRoute = lazy(() => import("./routes/BuilderWorkspaceRoute"));
 
 const queryClient = new QueryClient();
+
+installStaticRuntime();
 
 function RouteLoader() {
   return (
@@ -47,82 +50,171 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
-            <Suspense fallback={<RouteLoader />}>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route
-                  path="/"
-                  element={
-                    <ProtectedRoute>
-                      <Index />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route element={<BuilderWorkspaceRoute />}>
-                  <Route path="/builder" element={<MobileAppBuilder />} />
-                  <Route path="/builder/:appId" element={<MobileAppDesigner />} />
-                </Route>
-                <Route
-                  path="/menu-management"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin", "operator"]}>
-                      <MenuManagement />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/rewards"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin", "operator"]}>
-                      <Rewards />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/whitelabeling"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin", "designer"]}>
-                      <Whitelabeling />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/members"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin", "operator"]}>
-                      <Members />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/access-control"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin"]}>
-                      <AccessControl />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/manage-users"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin"]}>
-                      <ManageUsers />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/analytics"
-                  element={
-                    <ProtectedRoute allowedRoles={["admin", "analyst"]}>
-                      <Analytics />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
+          {STATIC_RUNTIME ? (
+            <HashRouter
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
+              <Suspense fallback={<RouteLoader />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route
+                    path="/"
+                    element={
+                      <ProtectedRoute>
+                        <Index />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route element={<BuilderWorkspaceRoute />}>
+                    <Route path="/builder" element={<MobileAppBuilder />} />
+                    <Route path="/builder/:appId" element={<MobileAppDesigner />} />
+                  </Route>
+                  <Route
+                    path="/menu-management"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <MenuManagement />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/rewards"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <Rewards />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/whitelabeling"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "designer"]}>
+                        <Whitelabeling />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/members"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <Members />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/access-control"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin"]}>
+                        <AccessControl />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/manage-users"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin"]}>
+                        <ManageUsers />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/analytics"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "analyst"]}>
+                        <Analytics />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </HashRouter>
+          ) : (
+            <BrowserRouter
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
+              <Suspense fallback={<RouteLoader />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route
+                    path="/"
+                    element={
+                      <ProtectedRoute>
+                        <Index />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route element={<BuilderWorkspaceRoute />}>
+                    <Route path="/builder" element={<MobileAppBuilder />} />
+                    <Route path="/builder/:appId" element={<MobileAppDesigner />} />
+                  </Route>
+                  <Route
+                    path="/menu-management"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <MenuManagement />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/rewards"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <Rewards />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/whitelabeling"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "designer"]}>
+                        <Whitelabeling />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/members"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "operator"]}>
+                        <Members />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/access-control"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin"]}>
+                        <AccessControl />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/manage-users"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin"]}>
+                        <ManageUsers />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/analytics"
+                    element={
+                      <ProtectedRoute allowedRoles={["admin", "analyst"]}>
+                        <Analytics />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          )}
         </TooltipProvider>
       </BrandingProvider>
     </AuthProvider>

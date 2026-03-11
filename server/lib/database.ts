@@ -85,6 +85,12 @@ const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
+  themePresetId: "ember-control",
+  fontPresetId: "manrope",
+  fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
+  customFontName: "",
+  customFontSource: "",
+  customFontFormat: "",
   domain: "homeplate.app",
 };
 

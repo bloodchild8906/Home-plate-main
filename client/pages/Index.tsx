@@ -1,49 +1,32 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type {
   ApiResponse,
-  DashboardDensity,
   DashboardPreferencesConfig,
   DashboardWidgetId,
 } from "@shared/api";
 import {
   ArrowRight,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Eye,
   EyeOff,
   Grip,
   LayoutDashboard,
   Lock,
-  type LucideIcon,
-  Settings2,
   ShieldCheck,
   Sparkles,
   WandSparkles,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { DashboardCustomizerSheet } from "@/components/dashboard/dashboard-customizer-sheet";
+import {
+  DashboardWidgetCard,
+  KpiStat,
+  type DashboardWidgetDefinition,
+} from "@/components/dashboard/dashboard-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
+import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
 import { useBranding } from "@/lib/branding";
 import { APP_ROUTES, ROLE_LABELS, type AppRouteMeta } from "@/lib/navigation";
@@ -58,7 +41,7 @@ const CATEGORY_ORDER: AppRouteMeta["category"][] = [
 
 const DASHBOARD_CONFIG_PREFIX = "homeplate_dashboard_preferences";
 
-const DASHBOARD_WIDGETS = [
+const DASHBOARD_WIDGETS: readonly DashboardWidgetDefinition[] = [
   {
     id: "focus",
     label: "Focus module",
@@ -199,142 +182,6 @@ function getModuleBoardGridClass(columns: DashboardPreferences["moduleColumns"])
     default:
       return "lg:grid-cols-2 2xl:grid-cols-3";
   }
-}
-
-function DashboardWidgetCard({
-  eyebrow,
-  title,
-  action,
-  compact,
-  className,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  action?: ReactNode;
-  compact: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Card className={cn("border-border/60 bg-card/90 shadow-xl", className)}>
-      <CardHeader
-        className={cn(
-          "flex flex-row items-start justify-between gap-4 space-y-0",
-          compact ? "p-5 pb-3" : "p-6 pb-4",
-        )}
-      >
-        <div>
-          <div className="text-[11px] font-black uppercase tracking-[0.22em] text-muted-foreground">
-            {eyebrow}
-          </div>
-          <CardTitle className="mt-2 text-xl font-black tracking-tight text-foreground">
-            {title}
-          </CardTitle>
-        </div>
-        {action}
-      </CardHeader>
-      <CardContent className={cn(compact ? "px-5 pb-5" : "px-6 pb-6")}>
-        {children}
-      </CardContent>
-    </Card>
-  );
-}
-
-function KpiStat({
-  label,
-  value,
-  helper,
-  compact,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-  compact: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-3xl border border-border/70 bg-background/85 shadow-sm",
-        compact ? "p-4" : "p-5",
-      )}
-    >
-      <div className="text-[11px] font-black uppercase tracking-[0.22em] text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-3 text-2xl font-black tracking-tight text-foreground">
-        {value}
-      </div>
-      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
-    </div>
-  );
-}
-
-function CustomizerRow({
-  icon: Icon,
-  label,
-  description,
-  visible,
-  onVisibilityChange,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
-}: {
-  icon: LucideIcon;
-  label: string;
-  description: string;
-  visible: boolean;
-  onVisibilityChange: (checked: boolean) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-}) {
-  return (
-    <div className="rounded-3xl border border-border/60 bg-card/70 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          <Icon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="font-bold text-foreground">{label}</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {description}
-          </div>
-        </div>
-        <Switch checked={visible} onCheckedChange={onVisibilityChange} />
-      </div>
-      <div className="mt-4 flex items-center justify-between rounded-2xl bg-muted/30 px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
-          <Grip className="h-3.5 w-3.5" />
-          Widget order
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={onMoveUp}
-            disabled={!canMoveUp}
-          >
-            <ChevronUp className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={onMoveDown}
-            disabled={!canMoveDown}
-          >
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function Index() {
@@ -989,180 +836,17 @@ export default function Index() {
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline">
-                <Settings2 className="mr-2 h-4 w-4" />
-                Customize dashboard
-              </Button>
-            </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="w-full border-border/70 bg-background/95 sm:max-w-xl"
-            >
-              <SheetHeader>
-                <SheetTitle>Customize dashboard</SheetTitle>
-                <SheetDescription>
-                  Control widget visibility, widget order, focus module, density,
-                  and module board layout. Settings are saved for the current
-                  signed-in user.
-                </SheetDescription>
-              </SheetHeader>
-
-              <ScrollArea className="mt-6 h-[calc(100vh-10rem)] pr-4">
-                <div className="space-y-6 pb-8">
-                  <div className="rounded-3xl border border-border/60 bg-card/80 p-5">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-foreground">
-                          Dashboard layout
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          Tune the density and default focus module.
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="rounded-2xl"
-                        onClick={resetDashboard}
-                      >
-                        Reset
-                      </Button>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Dashboard density</Label>
-                        <Select
-                          value={preferences.density}
-                          onValueChange={(value) =>
-                            updatePreferences({
-                              density: value as DashboardDensity,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="rounded-2xl">
-                            <SelectValue placeholder="Select density" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="comfortable">
-                              Comfortable
-                            </SelectItem>
-                            <SelectItem value="compact">Compact</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Focus module</Label>
-                        <Select
-                          value={focusRoute.path}
-                          onValueChange={(value) =>
-                            updatePreferences({ focusModulePath: value })
-                          }
-                        >
-                          <SelectTrigger className="rounded-2xl">
-                            <SelectValue placeholder="Select module" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(accessibleRoutes.length > 0
-                              ? accessibleRoutes
-                              : APP_ROUTES
-                            ).map((route) => (
-                              <SelectItem key={route.path} value={route.path}>
-                                {route.title}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Module board columns</Label>
-                        <Select
-                          value={String(preferences.moduleColumns)}
-                          onValueChange={(value) =>
-                            updatePreferences({
-                              moduleColumns:
-                                value === "2" || value === "4" ? Number(value) as 2 | 4 : 3,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="rounded-2xl">
-                            <SelectValue placeholder="Select columns" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="2">2 columns</SelectItem>
-                            <SelectItem value="3">3 columns</SelectItem>
-                            <SelectItem value="4">4 columns</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-background/70 px-4 py-3">
-                        <div>
-                          <div className="font-bold text-foreground">
-                            Show locked modules on the board
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Keep restricted cards visible for dashboard context.
-                          </div>
-                        </div>
-                        <Switch
-                          checked={preferences.showLockedModules}
-                          onCheckedChange={(checked) =>
-                            updatePreferences({ showLockedModules: checked })
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-border/60 bg-card/80 p-5">
-                    <div className="mb-4">
-                      <div className="font-bold text-foreground">
-                        Widget library
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Toggle widgets on or off and move them up or down in the
-                        dashboard flow.
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      {preferences.widgetOrder.map((widgetId, index) => {
-                        const widget = DASHBOARD_WIDGETS.find(
-                          (item) => item.id === widgetId,
-                        );
-
-                        if (!widget) {
-                          return null;
-                        }
-
-                        return (
-                          <CustomizerRow
-                            key={widget.id}
-                            icon={widget.icon}
-                            label={widget.label}
-                            description={widget.description}
-                            visible={!preferences.hiddenWidgets.includes(widget.id)}
-                            onVisibilityChange={(checked) =>
-                              toggleWidgetVisibility(widget.id, checked)
-                            }
-                            onMoveUp={() => moveWidget(widget.id, -1)}
-                            onMoveDown={() => moveWidget(widget.id, 1)}
-                            canMoveUp={index > 0}
-                            canMoveDown={index < preferences.widgetOrder.length - 1}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-            </SheetContent>
-          </Sheet>
+          <DashboardCustomizerSheet
+            focusRoutes={
+              accessibleRoutes.length > 0 ? accessibleRoutes : APP_ROUTES
+            }
+            preferences={preferences}
+            widgets={DASHBOARD_WIDGETS}
+            onUpdatePreferences={updatePreferences}
+            onToggleWidgetVisibility={toggleWidgetVisibility}
+            onMoveWidget={moveWidget}
+            onReset={resetDashboard}
+          />
         </>
       }
     >
