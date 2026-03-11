@@ -390,7 +390,8 @@ export function buildApiFunctionRequest(
   });
 
   let endpointPath = interpolateEndpointPath(apiFunction.endpoint, pathPayload);
-  const unresolvedPathMatches = endpointPath.match(/:([A-Za-z0-9_]+)/g) ?? [];
+  const unresolvedPathMatches: string[] =
+    endpointPath.match(/:([A-Za-z0-9_]+)/g) ?? [];
   unresolvedPathMatches.forEach((match) => missingRequired.add(match.slice(1)));
 
   if (!acceptsRequestBody(apiFunction.method)) {

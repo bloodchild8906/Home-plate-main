@@ -374,4 +374,4 @@ export interface BuilderMauiExportRequest {
 export interface BuilderMauiExportResponse {
   projectName: string;
   outputPath: string;
-}
+  template: "maui-blazor"

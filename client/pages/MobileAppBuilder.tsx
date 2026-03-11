@@ -24,16 +24,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 import {
   APP_TEMPLATES,
   type BuilderAppTemplateId,
   useBuilderStore,
 } from "@/lib/builder-store";
+import { STATIC_RUNTIME } from "@/lib/static-runtime";
+import { exportMauiHybridProject } from "@/lib/maui-export";
 
 export default function MobileAppBuilder() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [publishingAppId, setPublishingAppId] = useState("");
   const { apps, createApp, deleteApp, duplicateApp, updateApp } = useBuilderStore();
+  const publishedApps = apps.filter((app) => app.published).length;
+  const liveApps = apps.filter((app) => app.live).length;
+  const totalPages = apps.reduce((sum, app) => sum + app.pages.length, 0);
 
   return (
     <AppShell
@@ -50,7 +57,32 @@ export default function MobileAppBuilder() {
         />
       }
     >
-      <Card className="border-border/60 bg-card/90 shadow-xl">
+      <div className="space-y-6">
+        <section className="rounded-[2rem] border border-border/60 bg-card/90 p-6 shadow-xl">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge className="rounded-full px-3 py-1">Platform workspace</Badge>
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  {APP_TEMPLATES.length} templates
+                </Badge>
+              </div>
+              <div>
+                <h2 className="text-3xl font-black tracking-tight">Design, publish, and version mobile apps from one command deck.</h2>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+                  Start with a template, branch an existing app, or open the IDE-style builder to edit layout, styling, data bindings, and export targets.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <MetricCard label="Apps" value={apps.length} helper="Projects in workspace" />
+              <MetricCard label="Published" value={publishedApps} helper="Ready for export" />
+              <MetricCard label="Canvas pages" value={totalPages} helper={`${liveApps} live app${liveApps === 1 ? "" : "s"}`} />
+            </div>
+          </div>
+        </section>
+
+        <Card className="border-border/60 bg-card/90 shadow-xl">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -119,16 +151,49 @@ export default function MobileAppBuilder() {
                       <Button
                         size="sm"
                         variant={app.published ? "secondary" : "default"}
-                        onClick={() =>
-                          updateApp(app.id, (current) => ({
-                            ...current,
-                            published: !current.published,
-                            live: !current.published ? current.live : false,
-                          }))
-                        }
+                        disabled={STATIC_RUNTIME || publishingAppId === app.id}
+                        onClick={async () => {
+                          if (app.published) {
+                            updateApp(app.id, (current) => ({
+                              ...current,
+                              published: false,
+                              live: false,
+                            }));
+                            toast.success(`${app.name} unpublished`);
+                            return;
+                          }
+
+                          setPublishingAppId(app.id);
+
+                          try {
+                            const data = await exportMauiHybridProject(app);
+                            updateApp(app.id, (current) => ({
+                              ...current,
+                              published: true,
+                              live: current.live,
+                            }));
+                            toast.success(
+                              `${app.name} published as a .NET MAUI Blazor Hybrid app at ${data.outputPath}`,
+                            );
+                          } catch (error) {
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : "Failed to publish .NET MAUI Blazor Hybrid app",
+                            );
+                          } finally {
+                            setPublishingAppId("");
+                          }
+                        }}
                       >
                         <Rocket className="mr-2 h-4 w-4" />
-                        {app.published ? "Unpublish" : "Publish"}
+                        {STATIC_RUNTIME
+                          ? "Publish requires server mode"
+                          : publishingAppId === app.id
+                            ? "Publishing..."
+                            : app.published
+                              ? "Unpublish"
+                              : "Publish"}
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => deleteApp(app.id)}>
                         <Trash2 className="mr-2 h-4 w-4" />
@@ -141,8 +206,29 @@ export default function MobileAppBuilder() {
             </TableBody>
           </Table>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </AppShell>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: number;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.6rem] border border-border/60 bg-background/85 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-3 text-3xl font-black tracking-tight">{value}</div>
+      <div className="mt-2 text-sm text-muted-foreground">{helper}</div>
+    </div>
   );
 }
 

@@ -25,3 +25,6 @@ dist-ssr
 
 .config/
 !.env
+**/bin/
+**/obj/
+/generated-maui/*

@@ -82,6 +82,7 @@ import {
   Grid2x2,
   ImagePlus,
   KeyRound,
+  Minus,
   MoveVertical,
   Plus,
   QrCode,
@@ -105,6 +106,13 @@ import {
 import { BlockDataBindingFields } from "@/components/mobile-builder/block-data-binding-fields";
 import { BuilderPhonePreview } from "@/components/mobile-builder/builder-phone-preview";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -125,9 +133,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { toast } from "sonner";
 import {
-  BuilderMauiExportResponse,
   type ApiResponse,
   type BuilderApiParameterLocation,
   type BuilderServerApiEndpoint,
@@ -156,6 +168,7 @@ import {
   syncFontAssets,
 } from "@/lib/font-utils";
 import { STATIC_RUNTIME } from "@/lib/static-runtime";
+import { exportMauiHybridProject } from "@/lib/maui-export";
 import {
   APP_THEME_PRESETS,
   DEFAULT_FONT_PRESET_ID,
@@ -242,6 +255,14 @@ const LAYOUT_ALIGN_OPTIONS: { value: BuilderLayoutAlign; label: string }[] = [
   { value: "center", label: "Center" },
   { value: "flex-end", label: "End" },
 ];
+const PANEL_NATIVE_CONTROL_CLASSNAME =
+  "h-9 w-full rounded-none border border-border/70 bg-background px-2 text-sm";
+const PANEL_SECTION_CLASSNAME = "border border-border/70 bg-muted/10";
+const PANEL_SECTION_HEADER_CLASSNAME =
+  "border-b border-border/70 bg-muted/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground";
+const PANEL_SECTION_BODY_CLASSNAME = "space-y-3 p-3";
+const PANEL_NOTE_CLASSNAME =
+  "border border-border/70 bg-background/80 px-3 py-2 text-xs leading-5 text-muted-foreground";
 type HtmlElementDefinition = {
   tag: string;
   name: string;
@@ -1017,6 +1038,9 @@ export default function MobileAppDesigner() {
   const [selectedBlockId, setSelectedBlockId] = useState(app?.pages[0]?.blocks[0]?.id ?? "");
   const [preview, setPreview] = useState(false);
   const [screenSize, setScreenSize] = useState<(typeof PHONE_PRESETS)[number]["id"]>("standard");
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [showExplorerPane, setShowExplorerPane] = useState(true);
+  const [showInspectorPane, setShowInspectorPane] = useState(true);
   const [dragBlockId, setDragBlockId] = useState<string | null>(null);
   const [dragPageId, setDragPageId] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
@@ -1027,7 +1051,9 @@ export default function MobileAppDesigner() {
   const [toolboxQuery, setToolboxQuery] = useState("");
   const [boundApiResults, setBoundApiResults] = useState<Record<string, BuilderApiResultState>>({});
   const [previewWidth, setPreviewWidth] = useState(0);
+  const [previewModalSize, setPreviewModalSize] = useState({ width: 0, height: 0 });
   const previewViewportRef = useRef<HTMLElement | null>(null);
+  const previewModalViewportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const node = previewViewportRef.current;
@@ -1042,6 +1068,23 @@ export default function MobileAppDesigner() {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const node = previewModalViewportRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setPreviewModalSize({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      });
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [preview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1248,9 +1291,24 @@ export default function MobileAppDesigner() {
   const preset = PHONE_PRESETS.find((item) => item.id === screenSize) ?? PHONE_PRESETS[1];
   const deviceWidth = preset.width + 24;
   const deviceHeight = preset.height + 56;
-  const previewScale =
+  const fitPreviewScale =
     previewWidth > 0 ? Math.min(1, Math.max(0.15, (previewWidth - 24) / deviceWidth)) : 1;
+  const previewScale = Math.min(1.8, Math.max(0.15, fitPreviewScale * canvasZoom));
   const previewCanvasHeight = deviceHeight * previewScale;
+  const modalPreviewScale =
+    previewModalSize.width > 0 && previewModalSize.height > 0
+      ? Math.min(
+          1,
+          Math.max(
+            0.15,
+            Math.min(
+              (previewModalSize.width - 32) / deviceWidth,
+              (previewModalSize.height - 32) / deviceHeight,
+            ),
+          ),
+        )
+      : 1;
+  const modalPreviewCanvasHeight = deviceHeight * modalPreviewScale;
   const previewSurfaceStyle = createPreviewSurfaceStyle(app.brand);
   const previewHeroStyle = createPreviewHeroStyle(app.brand);
   const scopedPreviewCss = useMemo(
@@ -1645,55 +1703,236 @@ export default function MobileAppDesigner() {
     [app, boundApiResults],
   );
 
+  const renderPreviewBlocks = (interactive: boolean) =>
+    page.blocks.map((item) => {
+      const previewNode = (
+        <div
+          className={cn(
+            interactive && isInteractiveBlock(item) && "cursor-pointer",
+            pendingActionId === item.id && "opacity-70",
+          )}
+          draggable={!interactive}
+          onDragStart={() => setDragBlockId(item.id)}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={() => {
+            if (interactive || !dragBlockId) return;
+            updateCurrentPage((current) => ({
+              ...current,
+              blocks: reorderById(current.blocks, dragBlockId, item.id),
+            }));
+            setDragBlockId(null);
+          }}
+          onClick={() => {
+            if (!interactive) {
+              setSelectedBlockId(item.id);
+              return;
+            }
+
+            void triggerBlockEvent(item);
+          }}
+        >
+          {renderPreview(item, !interactive && item.id === block?.id)}
+        </div>
+      );
+
+      if (interactive) {
+        return <div key={item.id}>{previewNode}</div>;
+      }
+
+      return (
+        <ContextMenu key={item.id}>
+          <ContextMenuTrigger>{previewNode}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuLabel>Block Actions</ContextMenuLabel>
+            <ContextMenuItem
+              onClick={() => {
+                const copy = {
+                  ...item,
+                  id: uid("b"),
+                  layout: { ...item.layout },
+                  attributes: { ...item.attributes },
+                  events: { tap: { ...item.events.tap } },
+                  dataBinding: { ...item.dataBinding },
+                };
+                updateCurrentPage((current) => ({
+                  ...current,
+                  blocks: [...current.blocks, copy],
+                }));
+              }}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              Duplicate block
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => {
+                const remaining = page.blocks.filter((entry) => entry.id !== item.id);
+                updateCurrentPage((current) => ({
+                  ...current,
+                  blocks: current.blocks.filter((entry) => entry.id !== item.id),
+                }));
+                if (selectedBlockId === item.id) {
+                  setSelectedBlockId(remaining[0]?.id ?? "");
+                }
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove block
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      );
+    });
+
   return (
     <AppShell
-      title={`${app.name} Designer`}
-      description="Design the selected app on a dedicated page. Resize the preview, manage app-specific branding, reorder blocks, and adjust spacing in the inspector."
       fluid
+      hideSidebar
+      hidePageIntro
       actions={
         <>
           <Button variant="outline" onClick={() => navigate("/builder")}>Back to apps</Button>
           <Button
             disabled={STATIC_RUNTIME}
             onClick={async () => {
-              const response = await fetch("/api/builder/export-maui", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ app }),
-              });
-              const data = (await response.json()) as ApiResponse<BuilderMauiExportResponse>;
-              if (!response.ok || !data.success || !data.data) {
-                toast.error(data.error ?? "Failed to build MAUI project");
-                return;
+              try {
+                const data = await exportMauiHybridProject(app);
+                toast.success(
+                  `.NET MAUI Blazor Hybrid project created at ${data.outputPath}`,
+                );
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to build .NET MAUI Blazor Hybrid project",
+                );
               }
-              toast.success(`MAUI project created at ${data.data.outputPath}`);
             }}
           >
             <Download className="mr-2 h-4 w-4" />
-            {STATIC_RUNTIME ? "MAUI export requires server mode" : "Build MAUI app"}
+            {STATIC_RUNTIME
+              ? "MAUI export requires server mode"
+              : "Build .NET MAUI Blazor Hybrid app"}
           </Button>
-          <Button variant="outline" onClick={() => setPreview((current) => !current)}>
+          <Button variant="outline" onClick={() => setPreview(true)}>
             <Eye className="mr-2 h-4 w-4" />
-            {preview ? "Edit mode" : "Preview mode"}
+            Preview mode
           </Button>
         </>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-        {!preview ? (
-          <div className="space-y-5">
-            <Panel eyebrow="Explorer" title="Project">
+      <div className="space-y-4">
+        <section className="rounded-[1.85rem] border border-border/70 bg-card/90 p-4 shadow-xl">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="rounded-full px-3 py-1">Builder IDE</Badge>
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  {app.pages.length} pages
+                </Badge>
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  {page.blocks.length} blocks on canvas
+                </Badge>
+                {block ? (
+                  <Badge variant="outline" className="rounded-full px-3 py-1">
+                    Selected: {block.name}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {app.pages.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPageId(item.id);
+                      setSelectedBlockId(item.blocks[0]?.id ?? "");
+                    }}
+                    className={cn(
+                      "whitespace-nowrap rounded-2xl border px-4 py-2 text-sm font-semibold transition-all",
+                      item.id === page.id
+                        ? "border-primary/40 bg-primary/10 text-primary shadow-sm"
+                        : "border-border/60 bg-background/80 text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-foreground",
+                    )}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={showExplorerPane ? "secondary" : "outline"}
+                onClick={() => setShowExplorerPane((current) => !current)}
+              >
+                {showExplorerPane ? "Hide navigator" : "Show navigator"}
+              </Button>
+              <Button
+                variant={showInspectorPane ? "secondary" : "outline"}
+                onClick={() => setShowInspectorPane((current) => !current)}
+              >
+                {showInspectorPane ? "Hide inspector" : "Show inspector"}
+              </Button>
+              <div className="flex items-center gap-1 rounded-2xl border border-border/60 bg-background/80 p-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-xl"
+                  onClick={() =>
+                    setCanvasZoom((current) =>
+                      Number(Math.max(0.6, current - 0.1).toFixed(2)),
+                    )
+                  }
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <div className="min-w-[68px] text-center text-sm font-semibold text-foreground">
+                  {Math.round(canvasZoom * 100)}%
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-xl"
+                  onClick={() =>
+                    setCanvasZoom((current) =>
+                      Number(Math.min(1.8, current + 0.1).toFixed(2)),
+                    )
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <Button variant="outline" onClick={() => setCanvasZoom(1)}>
+                Fit canvas
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <div className="h-[calc(100vh-17rem)] min-h-[780px] overflow-hidden rounded-[2rem] border border-border/70 bg-card/70 shadow-2xl backdrop-blur-xl">
+          <ResizablePanelGroup orientation="horizontal">
+            {showExplorerPane ? (
+              <>
+                <ResizablePanel defaultSize={26} minSize={18}>
+                  <div className="h-full overflow-hidden border-r border-border/60 bg-background/40">
+                    <ScrollArea className="h-full">
+                      <div className="space-y-4 p-4">
+                        <Panel eyebrow="Navigator" title="Workspace">
               <Tabs defaultValue="pages">
-                <TabsList className="grid w-full grid-cols-4 rounded-2xl bg-muted/40 p-1">
-                  <TabsTrigger value="pages">Pages</TabsTrigger>
-                  <TabsTrigger value="branding">Branding</TabsTrigger>
-                  <TabsTrigger value="styles">Styles</TabsTrigger>
-                  <TabsTrigger value="api">API</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-4 rounded-none bg-muted/40 p-1">
+                  <TabsTrigger className="rounded-none text-[11px] font-semibold uppercase tracking-[0.12em]" value="pages">Pages</TabsTrigger>
+                  <TabsTrigger className="rounded-none text-[11px] font-semibold uppercase tracking-[0.12em]" value="branding">Branding</TabsTrigger>
+                  <TabsTrigger className="rounded-none text-[11px] font-semibold uppercase tracking-[0.12em]" value="styles">Styles</TabsTrigger>
+                  <TabsTrigger className="rounded-none text-[11px] font-semibold uppercase tracking-[0.12em]" value="api">API</TabsTrigger>
                 </TabsList>
                 <TabsContent value="pages" className="mt-4 space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm text-muted-foreground">Add, reorder, or remove app pages here.</p>
-                    <Button size="sm" onClick={() => {
+                    <Button className="rounded-none" size="sm" onClick={() => {
                       const nextPage = { id: uid("p"), name: `Page ${app.pages.length + 1}`, blocks: [createBlock("heading"), createBlock("text")] };
                       updateCurrentApp((current) => ({ ...current, pages: [...current.pages, nextPage] }));
                       setSelectedPageId(nextPage.id);
@@ -1720,11 +1959,11 @@ export default function MobileAppDesigner() {
                               setSelectedPageId(item.id);
                               setSelectedBlockId(item.blocks[0]?.id ?? "");
                             }}
-                            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left ${item.id === page.id ? "border-primary/40 bg-primary/5" : "border-border/60 bg-background/70"}`}
+                            className={`flex w-full items-center justify-between border px-3 py-2.5 text-left transition-colors ${item.id === page.id ? "border-primary/40 bg-primary/5" : "border-border/70 bg-background/70 hover:bg-muted/20"}`}
                           >
                             <div>
-                              <div className="font-bold">{item.name}</div>
-                              <div className="text-xs text-muted-foreground">{item.blocks.length} blocks</div>
+                              <div className="text-sm font-semibold">{item.name}</div>
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{item.blocks.length} blocks</div>
                             </div>
                             <MoveVertical className="h-4 w-4 text-muted-foreground" />
                           </button>
@@ -2402,64 +2641,87 @@ export default function MobileAppDesigner() {
               </Tabs>
             </Panel>
 
-            <Panel eyebrow="Toolbar" title="Add Blocks">
+            <Panel eyebrow="Library" title="Toolbox">
               <div className="space-y-5">
-                <div>
-                  <div className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">App blocks</div>
-                  <div className="flex flex-wrap gap-3">
+                <div className={PANEL_SECTION_CLASSNAME}>
+                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>Blocks</div>
+                  <div className="divide-y divide-border/70">
                     {CORE_LIBRARY.map((item) => (
                       <Tooltip key={item.type}>
                         <TooltipTrigger asChild>
                           <button
                             onClick={() => addBlockToCurrentPage(createBlock(item.type))}
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border/60 bg-background/75 text-primary transition-all hover:border-primary/40 hover:bg-primary/5"
+                            className="grid w-full grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-primary/5"
                           >
-                            <span className="scale-110">{item.icon}</span>
+                            <span className="flex h-8 w-8 items-center justify-center border border-border/70 bg-background text-primary">
+                              <span className="scale-110">{item.icon}</span>
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold">{item.label}</span>
+                              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                {item.type}
+                              </span>
+                            </span>
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                              Add
+                            </span>
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-[220px] rounded-2xl p-3">
-                          <div className="font-bold">{item.label}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">Add this block to the selected page.</div>
-                          <div className="mt-3 rounded-xl border border-border/60 bg-muted/20 p-2 text-[10px] text-muted-foreground">Preview: {item.label} block</div>
+                        <TooltipContent className="max-w-[220px] rounded-none border border-border/70 p-3">
+                          <div className="font-semibold">{item.label}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Add this block to the selected page.
+                          </div>
+                          <div className="mt-3 border border-border/70 bg-muted/20 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                            Preview: {item.label}
+                          </div>
                         </TooltipContent>
                       </Tooltip>
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">HTML elements</div>
-                      <div className="text-xs text-muted-foreground">{filteredHtmlTags.length} available in toolbox</div>
+                <div className={PANEL_SECTION_CLASSNAME}>
+                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>
+                    Elements
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                      {filteredHtmlTags.length} available
                     </div>
                     <Input
                       value={toolboxQuery}
                       onChange={(event) => setToolboxQuery(event.target.value)}
                       placeholder="Search tags"
-                      className="h-9 max-w-[160px] rounded-2xl"
+                      className="h-8 max-w-[160px] rounded-none"
                     />
                   </div>
-                  <ScrollArea className="h-[320px] rounded-2xl border border-border/60 bg-background/75">
-                    <div className="grid grid-cols-2 gap-2 p-3">
+                  <ScrollArea className="h-[320px] bg-background/75">
+                    <div className="divide-y divide-border/70">
                       {filteredHtmlTags.map((entry) => (
                         <Tooltip key={entry.tag}>
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => addBlockToCurrentPage(createHtmlToolboxBlock(entry.tag))}
-                              className="flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background px-3 py-3 text-center text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5"
+                              className="grid w-full grid-cols-[32px_minmax(0,1fr)_auto] items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-primary/5"
                               aria-label={`Add ${entry.name} element`}
                             >
-                              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                              <span className="flex h-8 w-8 items-center justify-center border border-border/70 bg-background text-primary">
                                 <FontAwesomeIcon icon={entry.icon} className="text-base" />
                               </span>
-                              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                                {`<${entry.tag}>`}
+                              <span className="min-w-0">
+                                <span className="block text-sm font-semibold">{entry.name}</span>
+                                <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                  {`<${entry.tag}>`}
+                                </span>
+                              </span>
+                              <span className="pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                Add
                               </span>
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent className="max-w-[240px] rounded-2xl p-3">
-                            <div className="font-bold">{entry.name}</div>
+                          <TooltipContent className="max-w-[240px] rounded-none border border-border/70 p-3">
+                            <div className="font-semibold">{entry.name}</div>
                             <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
                               {`<${entry.tag}>`}
                             </div>
@@ -2468,7 +2730,7 @@ export default function MobileAppDesigner() {
                         </Tooltip>
                       ))}
                       {filteredHtmlTags.length === 0 ? (
-                        <div className="col-span-2 rounded-2xl border border-dashed border-border/60 bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
+                        <div className="border border-dashed border-border/70 bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
                           No matching HTML tags.
                         </div>
                       ) : null}
@@ -2476,22 +2738,34 @@ export default function MobileAppDesigner() {
                   </ScrollArea>
                 </div>
               </div>
-            </Panel>
-          </div>
-        ) : null}
+          </Panel>
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+              </>
+            ) : null}
 
+            <ResizablePanel
+              defaultSize={showExplorerPane && showInspectorPane ? 50 : showExplorerPane || showInspectorPane ? 72 : 100}
+              minSize={35}
+            >
         <section
           ref={previewViewportRef}
-          className="rounded-[2rem] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--muted)/0.45),hsl(var(--background)))] p-4 shadow-xl sm:p-6"
+          className="flex h-full flex-col overflow-hidden border-x border-border/60 bg-[linear-gradient(180deg,hsl(var(--muted)/0.36),hsl(var(--background))_28%,hsl(var(--card)))] p-4"
         >
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-4 flex flex-col gap-3 rounded-[1.6rem] border border-border/60 bg-background/80 px-4 py-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Preview</div>
+              <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Canvas</div>
               <h2 className="mt-2 text-xl font-black tracking-tight">{page.name}</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="rounded-full px-3 py-1">
-                {Math.round(previewScale * 100)}% scale
+                Fit {Math.round(fitPreviewScale * 100)}%
+              </Badge>
+              <Badge variant="outline" className="rounded-full px-3 py-1">
+                Canvas {Math.round(previewScale * 100)}%
               </Badge>
               <select
                 value={screenSize}
@@ -2507,8 +2781,8 @@ export default function MobileAppDesigner() {
             </div>
           </div>
 
-          <div className="overflow-hidden">
-            <div className="flex justify-center" style={{ minHeight: previewCanvasHeight }}>
+          <div className="flex-1 overflow-hidden rounded-[1.75rem] border border-dashed border-border/60 bg-[linear-gradient(180deg,hsl(var(--background)/0.92),hsl(var(--muted)/0.62))] p-4">
+            <div className="flex h-full justify-center overflow-auto" style={{ minHeight: previewCanvasHeight }}>
               <AnimatePresence mode="wait">
                 <BuilderPhonePreview
                   app={app}
@@ -2520,74 +2794,26 @@ export default function MobileAppDesigner() {
                   previewHeroStyle={previewHeroStyle}
                   scopedPreviewCss={scopedPreviewCss}
                 >
-                  {page.blocks.map((item) => (
-                    <ContextMenu key={item.id}>
-                      <ContextMenuTrigger>
-                        <div
-                          className={cn(
-                            isInteractiveBlock(item) && preview && "cursor-pointer",
-                            pendingActionId === item.id && "opacity-70",
-                          )}
-                          draggable={!preview}
-                          onDragStart={() => setDragBlockId(item.id)}
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={() => {
-                            if (!dragBlockId) return;
-                            updateCurrentPage((current) => ({ ...current, blocks: reorderById(current.blocks, dragBlockId, item.id) }));
-                            setDragBlockId(null);
-                          }}
-                          onClick={() => {
-                            if (!preview) {
-                              setSelectedBlockId(item.id);
-                              return;
-                            }
-
-                            void triggerBlockEvent(item);
-                          }}
-                        >
-                          {renderPreview(item, !preview && item.id === block?.id)}
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuLabel>Block Actions</ContextMenuLabel>
-                        <ContextMenuItem onClick={() => {
-                          const copy = {
-                            ...item,
-                            id: uid("b"),
-                            layout: { ...item.layout },
-                            attributes: { ...item.attributes },
-                            events: { tap: { ...item.events.tap } },
-                            dataBinding: { ...item.dataBinding },
-                          };
-                          updateCurrentPage((current) => ({ ...current, blocks: [...current.blocks, copy] }));
-                        }}>
-                          <Copy className="mr-2 h-4 w-4" />
-                          Duplicate block
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => {
-                          const remaining = page.blocks.filter((entry) => entry.id !== item.id);
-                          updateCurrentPage((current) => ({ ...current, blocks: current.blocks.filter((entry) => entry.id !== item.id) }));
-                          if (selectedBlockId === item.id) {
-                            setSelectedBlockId(remaining[0]?.id ?? "");
-                          }
-                        }}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Remove block
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  ))}
+                  {renderPreviewBlocks(false)}
                 </BuilderPhonePreview>
               </AnimatePresence>
             </div>
           </div>
         </section>
 
-        {!preview && block ? (
+            </ResizablePanel>
+
+            {showInspectorPane ? (
+              <>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={24} minSize={20}>
+                  <div className="h-full overflow-hidden bg-background/40">
+                    <ScrollArea className="h-full">
+                      <div className="p-4">
+        {block ? (
           <div className="space-y-5">
-            <Panel eyebrow="Inspector" title="Selected Block">
-              <div className="space-y-4">
+            <Panel eyebrow="Properties" title={block.name || "Selected Block"}>
+              <div className="space-y-3">
                 <Field label={block.type === "html" ? "Content" : "Text"}>
                   <Input value={block.text ?? ""} onChange={(event) => updateSelectedBlock((item) => ({ ...item, text: event.target.value }))} />
                 </Field>
@@ -2659,9 +2885,9 @@ export default function MobileAppDesigner() {
                   statusMessage={selectedBlockBindingMessage}
                   onChange={updateSelectedBlockDataBinding}
                 />
-                <div className="rounded-3xl border border-border/60 bg-muted/15 p-4">
-                  <div className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Interactions</div>
-                  <div className="space-y-4">
+                <div className={PANEL_SECTION_CLASSNAME}>
+                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>Interactions</div>
+                  <div className={PANEL_SECTION_BODY_CLASSNAME}>
                     <Field label="On tap">
                       <select
                         value={block.events.tap.kind}
@@ -2681,7 +2907,7 @@ export default function MobileAppDesigner() {
                             },
                           };
                         })}
-                        className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         <option value="none">No action</option>
                         <option value="navigate">Navigate to page</option>
@@ -2702,7 +2928,7 @@ export default function MobileAppDesigner() {
                                 },
                               },
                             }))}
-                            className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                            className={PANEL_NATIVE_CONTROL_CLASSNAME}
                           >
                             <option value="">Select a page</option>
                             {app.pages.map((entry) => (
@@ -2743,7 +2969,7 @@ export default function MobileAppDesigner() {
                                 },
                               },
                             }))}
-                            className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                            className={PANEL_NATIVE_CONTROL_CLASSNAME}
                           >
                             <option value="">Select a function</option>
                             {app.apiFunctions.map((fn) => (
@@ -2754,7 +2980,7 @@ export default function MobileAppDesigner() {
                           </select>
                         </Field>
                         {block.events.tap.functionId ? (
-                          <div className="rounded-2xl border border-border/60 bg-background/80 p-3 text-xs leading-5 text-muted-foreground">
+                          <div className={PANEL_NOTE_CLASSNAME}>
                             {(app.apiFunctions.find((fn) => fn.id === block.events.tap.functionId)?.properties.length ?? 0)} mapped properties will be resolved from the app when this event runs.
                           </div>
                         ) : null}
@@ -2780,9 +3006,9 @@ export default function MobileAppDesigner() {
                     </p>
                   </div>
                 </div>
-                <div className="rounded-3xl border border-border/60 bg-background/80 p-4">
-                  <div className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">HTML and style</div>
-                  <div className="space-y-4">
+                <div className={PANEL_SECTION_CLASSNAME}>
+                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>HTML and style</div>
+                  <div className={PANEL_SECTION_BODY_CLASSNAME}>
                     <Field label="Element ID">
                       <Input
                         value={block.attributes.elementId}
@@ -2807,14 +3033,14 @@ export default function MobileAppDesigner() {
                     </Field>
                   </div>
                 </div>
-                <div className="rounded-3xl border border-border/60 bg-muted/15 p-4">
-                  <div className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Layout and spacing</div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                <div className={PANEL_SECTION_CLASSNAME}>
+                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>Layout and spacing</div>
+                  <div className="grid gap-3 p-3 sm:grid-cols-2">
                     <Field label="Display">
                       <select
                         value={block.layout.display}
                         onChange={(event) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, display: event.target.value as BuilderLayoutDisplay } }))}
-                        className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         {LAYOUT_DISPLAY_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2830,7 +3056,7 @@ export default function MobileAppDesigner() {
                       <select
                         value={block.layout.direction}
                         onChange={(event) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, direction: event.target.value as BuilderLayoutDirection } }))}
-                        className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         {LAYOUT_DIRECTION_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2846,7 +3072,7 @@ export default function MobileAppDesigner() {
                       <select
                         value={block.layout.justify}
                         onChange={(event) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, justify: event.target.value as BuilderLayoutJustify } }))}
-                        className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         {LAYOUT_JUSTIFY_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2859,7 +3085,7 @@ export default function MobileAppDesigner() {
                       <select
                         value={block.layout.align}
                         onChange={(event) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, align: event.target.value as BuilderLayoutAlign } }))}
-                        className="h-10 w-full rounded-2xl border border-border/60 bg-background px-3 text-sm"
+                        className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         {LAYOUT_ALIGN_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2869,10 +3095,12 @@ export default function MobileAppDesigner() {
                       </select>
                     </Field>
                   </div>
-                  <div className="mt-4 rounded-2xl border border-border/60 bg-background/80 p-3 text-xs leading-5 text-muted-foreground">
-                    Block keeps the default component layout. Flex and Grid let you reflow the block content, repeated items, and shell alignment directly in the preview.
+                  <div className="px-3 pb-3">
+                    <div className={PANEL_NOTE_CLASSNAME}>
+                      Block keeps the default component layout. Flex and Grid let you reflow the block content, repeated items, and shell alignment directly in the preview.
+                    </div>
                   </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-3 px-3 pb-3 sm:grid-cols-2">
                     <SpacingGroup
                       label="Margin"
                       layout={block.layout}
@@ -2896,7 +3124,7 @@ export default function MobileAppDesigner() {
                       onChange={(key, value) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, [key]: value } }))}
                     />
                   </div>
-                  <div className="mt-4">
+                  <div className="px-3 pb-3">
                     <Field label="Corner radius">
                       <Input type="number" min="0" value={block.layout.radius} onChange={(event) => updateSelectedBlock((item) => ({ ...item, layout: { ...item.layout, radius: Number(event.target.value) } }))} />
                     </Field>
@@ -2905,8 +3133,68 @@ export default function MobileAppDesigner() {
               </div>
             </Panel>
           </div>
-        ) : null}
+        ) : (
+          <section className="flex min-h-[320px] items-center justify-center border border-dashed border-border/70 bg-card/80 p-8 text-center shadow-sm">
+            <div className="max-w-sm space-y-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Inspector
+              </div>
+              <h3 className="text-lg font-semibold uppercase tracking-[0.08em]">Select a block</h3>
+              <p className="text-sm text-muted-foreground">
+                Choose any block on the canvas to edit its content, interactions, layout, and generated markup.
+              </p>
+            </div>
+          </section>
+        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </ResizablePanel>
+              </>
+            ) : null}
+          </ResizablePanelGroup>
+        </div>
       </div>
+      <Dialog open={preview} onOpenChange={setPreview}>
+        <DialogContent className="left-0 top-0 grid h-screen w-screen max-h-none max-w-none translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-[linear-gradient(180deg,hsl(var(--muted)/0.55),hsl(var(--background)))] p-0">
+          <DialogHeader className="border-b border-border/60 px-6 py-5 pr-16">
+            <DialogTitle className="flex items-center gap-2 text-xl font-black tracking-tight">
+              <Eye className="h-5 w-5" />
+              {app.name} Preview
+            </DialogTitle>
+            <DialogDescription>
+              Interactive app preview in a modal window. Tap blocks here to test navigation and API actions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
+            <Badge variant="outline" className="rounded-full px-3 py-1">
+              {page.name}
+            </Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">
+              {preset.label} {preset.width}px
+            </Badge>
+          </div>
+          <div
+            ref={previewModalViewportRef}
+            className="overflow-auto px-4 pb-6 pt-4 sm:px-6"
+          >
+            <div className="flex h-full min-h-0 items-start justify-center">
+              <BuilderPhonePreview
+                app={app}
+                pageName={page.name}
+                preset={preset}
+                previewScale={modalPreviewScale}
+                previewCanvasHeight={modalPreviewCanvasHeight}
+                previewSurfaceStyle={previewSurfaceStyle}
+                previewHeroStyle={previewHeroStyle}
+                scopedPreviewCss={scopedPreviewCss}
+              >
+                {renderPreviewBlocks(true)}
+              </BuilderPhonePreview>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

@@ -12,6 +12,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const GENERATED_ROOT = path.resolve(process.cwd(), "generated-maui");
+const MAUI_HYBRID_TEMPLATE = "maui-blazor";
 
 export const exportMauiProject: RequestHandler = async (req, res) => {
   try {
@@ -33,7 +34,7 @@ export const exportMauiProject: RequestHandler = async (req, res) => {
 
     await execFileAsync("dotnet", [
       "new",
-      "maui-blazor",
+      MAUI_HYBRID_TEMPLATE,
       "-n",
       projectName,
       "-o",
@@ -47,6 +48,7 @@ export const exportMauiProject: RequestHandler = async (req, res) => {
       data: {
         projectName,
         outputPath,
+        template: MAUI_HYBRID_TEMPLATE,
       },
     };
 

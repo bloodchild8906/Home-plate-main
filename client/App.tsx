@@ -51,12 +51,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           {STATIC_RUNTIME ? (
-            <HashRouter
-              future={{
-                v7_startTransition: true,
-                v7_relativeSplatPath: true,
-              }}
-            >
+            <HashRouter>
               <Suspense fallback={<RouteLoader />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
@@ -133,12 +128,7 @@ const App = () => (
               </Suspense>
             </HashRouter>
           ) : (
-            <BrowserRouter
-              future={{
-                v7_startTransition: true,
-                v7_relativeSplatPath: true,
-              }}
-            >
+            <BrowserRouter>
               <Suspense fallback={<RouteLoader />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />

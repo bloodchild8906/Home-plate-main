@@ -533,3 +533,4 @@ C:\Home-plate-main\generated-maui\SamplePhoneApp\obj\Debug\net9.0-windows10.0.19
 C:\Home-plate-main\generated-maui\SamplePhoneApp\obj\Debug\net9.0-windows10.0.19041.0\win10-x64\qualifiers.txt
 C:\Home-plate-main\generated-maui\SamplePhoneApp\obj\Debug\net9.0-windows10.0.19041.0\win10-x64\qualifiers.txt.intermediate
 C:\Home-plate-main\generated-maui\SamplePhoneApp\obj\Debug\net9.0-windows10.0.19041.0\win10-x64\MultipleQualifiersPerDimensionFound.txt
+C:\Home-plate-main\generated-maui\SamplePhoneApp\obj\Debug\net9.0-windows10.0.19041.0\win10-x64\SamplePhoneApp.sourcelink.json

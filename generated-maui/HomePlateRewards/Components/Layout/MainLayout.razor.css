@@ -1,9 +1,10 @@
 .maui-app-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #fff7ed, #ffffff);
+  background: linear-gradient(180deg, #d2cfcb, #ffffff);
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
-  color: #0f172a;
+  color: #e1e4ea;
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
+
