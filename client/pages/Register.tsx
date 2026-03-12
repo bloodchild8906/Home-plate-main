@@ -8,39 +8,41 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { getUserRoleLabel } from "@/lib/access-control";
-import { demoCredentials, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useBranding } from "@/lib/branding";
 import { cn } from "@/lib/utils";
-import type { LoginBuilderBlockId } from "@shared/api";
+import type { ApiResponse, LoginBuilderBlockId, User } from "@shared/api";
 
-const LOGIN_FEATURES: Array<{ icon: ReactNode; title: string; description: string }> = [
+const REGISTER_FEATURES: Array<{ icon: ReactNode; title: string; description: string }> = [
   {
     icon: <Sparkles className="h-5 w-5" />,
-    title: "Builder navigation",
-    description: "Compose top bars, quick-link menus, and bottom tab rails in the designer.",
+    title: "Companion-ready onboarding",
+    description: "Create credentials that can be used across platform modules.",
   },
   {
     icon: <ShieldCheck className="h-5 w-5" />,
-    title: "Guarded routes",
-    description: "Modules open only when the signed-in role is authorized.",
+    title: "Role-aware defaults",
+    description: "New accounts start with restricted defaults and can be promoted later.",
   },
   {
     icon: <Lock className="h-5 w-5" />,
-    title: "Demo policy matrix",
-    description: "Access control stays synchronized with route permissions.",
+    title: "Secure credentials",
+    description: "Passwords are stored securely and validated before activation.",
   },
 ];
 
-export default function Login() {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123!");
+export default function Register() {
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { isAuthenticated, signIn, isReady } = useAuth();
   const { brand } = useBranding();
   const navigate = useNavigate();
   const location = useLocation();
-  const builder = brand.loginBuilder;
+  const builder = brand.registerBuilder;
 
   const redirectTo =
     (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/";
@@ -51,16 +53,31 @@ export default function Login() {
     }
   }, [isAuthenticated, isReady, navigate, redirectTo]);
 
-  const handleLogin = async (event: React.FormEvent) => {
+  const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsLoading(true);
 
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      const user = await signIn(username, password);
-      toast.success(`Signed in as ${getUserRoleLabel(user)}`);
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, username, email, password }),
+      });
+      const payload = (await response.json()) as ApiResponse<User>;
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || "Unable to create account.");
+      }
+
+      await signIn(username, password);
+      toast.success("Account created.");
       navigate(redirectTo, { replace: true });
-    } catch {
-      toast.error("Invalid credentials. Use one of the demo accounts below.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to create account.");
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +95,7 @@ export default function Login() {
       case "badge":
         return (
           <Badge className="rounded-full bg-white text-slate-950">
-            {brand.name} Secure Access
+            {brand.name} Account Registration
           </Badge>
         );
       case "brand":
@@ -96,20 +113,20 @@ export default function Login() {
       case "headline":
         return (
           <h1 className="max-w-xl text-4xl font-black tracking-tight sm:text-5xl">
-            Restaurant app operations with role-based access from the first screen.
+            Create your workspace account and start building.
           </h1>
         );
       case "description":
         return (
           <p className="max-w-2xl text-base text-slate-200">
-            Use demo credentials to enter the workspace as an administrator, designer,
-            operator, or analyst.
+            Register with a secure password. Your role starts in a limited state until access
+            is approved.
           </p>
         );
       case "featureTiles":
         return (
           <div className={cn("grid gap-4", featureGridClass)}>
-            {LOGIN_FEATURES.map((feature) => (
+            {REGISTER_FEATURES.map((feature) => (
               <FeatureTile
                 key={feature.title}
                 icon={feature.icon}
@@ -120,100 +137,102 @@ export default function Login() {
           </div>
         );
       case "loginTitle":
-        return <h2 className="text-2xl font-black text-white">Sign in to the workspace</h2>;
+        return <h2 className="text-2xl font-black text-white">Create account</h2>;
       case "loginHint":
         return (
           <p className="text-sm text-slate-300">
-            Protected routes redirect here automatically. Credentials below are preloaded for
-            testing.
+            Register a new user for this workspace, then continue into the platform.
           </p>
-        );
-      case "loginForm":
-        return (
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">
-                Username
-              </Label>
-              <div className="relative">
-                <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                <Input
-                  id="username"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-2xl border-white/10 bg-white/5 pl-10 text-white"
-                  placeholder="admin"
-                  autoComplete="username"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">
-                Password
-              </Label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-2xl border-white/10 bg-white/5 pl-10 text-white"
-                  placeholder="admin123!"
-                  autoComplete="current-password"
-                />
-              </div>
-            </div>
-
-            <Button type="submit" className="h-12 w-full rounded-2xl text-base font-bold" disabled={isLoading}>
-              {isLoading ? "Signing in..." : `Enter ${brand.name}`}
-            </Button>
-          </form>
         );
       case "registerForm":
         return (
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Full name</Label>
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="h-11 rounded-2xl border-white/10 bg-white/5 text-white"
+                placeholder="Jane Doe"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Username</Label>
+              <div className="relative">
+                <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <Input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="h-11 rounded-2xl border-white/10 bg-white/5 pl-10 text-white"
+                  placeholder="newuser"
+                  autoComplete="username"
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Email</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="h-11 rounded-2xl border-white/10 bg-white/5 text-white"
+                placeholder="you@domain.com"
+                autoComplete="email"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Password</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="h-11 rounded-2xl border-white/10 bg-white/5 pl-10 text-white"
+                  placeholder="Create password"
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Confirm password</Label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                className="h-11 rounded-2xl border-white/10 bg-white/5 text-white"
+                placeholder="Repeat password"
+                autoComplete="new-password"
+                required
+              />
+            </div>
+            <Button type="submit" className="h-12 w-full rounded-2xl text-base font-bold" disabled={isLoading}>
+              {isLoading ? "Creating account..." : "Create account"}
+            </Button>
+          </form>
+        );
+      case "loginForm":
+        return (
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-            Register form is not available on the login page. Use the register page builder.
+            Login form is not available on the register page. Use the login page builder.
           </div>
         );
       case "demoAccounts":
         return (
-          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-            <div className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-slate-300">
-              Demo accounts
-            </div>
-            <div className="grid gap-3">
-              {demoCredentials.map((account) => (
-                <button
-                  key={account.username}
-                  type="button"
-                  onClick={() => {
-                    setUsername(account.username);
-                    setPassword(account.password);
-                  }}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-black/30"
-                >
-                  <div>
-                    <div className="font-bold text-white">{getUserRoleLabel(account.user)}</div>
-                    <div className="text-xs text-slate-400">
-                      {account.username} / {account.password}
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="border-white/20 text-slate-300">
-                    {account.user.role}
-                  </Badge>
-                </button>
-              ))}
-            </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+            Demo account chips are disabled for register mode.
           </div>
         );
       case "footer":
         return (
           <p className="text-center text-xs text-slate-400">
-            Returning to <span className="text-slate-200">{redirectTo}</span>.{" "}
-            <Link to="/register" className="text-slate-100 underline underline-offset-4">
-              Create account
+            Already have an account?{" "}
+            <Link to="/login" className="text-slate-100 underline underline-offset-4">
+              Sign in
             </Link>
           </p>
         );

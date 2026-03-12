@@ -17,6 +17,7 @@ import type {
 import { DEFAULT_ACCESS_ROLES } from "@shared/access-control";
 import {
   createDefaultLoginBuilderConfig,
+  createDefaultRegisterBuilderConfig,
   normalizeLoginBuilderConfig,
 } from "@/lib/login-builder";
 
@@ -110,6 +111,7 @@ const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   splashSpinnerColor: "#ea580c",
   splashSpinnerAccent: "#f59e0b",
   loginBuilder: createDefaultLoginBuilderConfig(),
+  registerBuilder: createDefaultRegisterBuilderConfig(),
   themePresetId: "ember-control",
   fontPresetId: "manrope",
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
@@ -325,6 +327,12 @@ const STATIC_BUILDER_API_CATALOG: BuilderServerApiEndpoint[] = [
     param("username", "Username", "body", true, "string", "Workspace username."),
     param("password", "Password", "body", true, "string", "Workspace password."),
   ], "Signed in successfully"),
+  endpoint("auth-register", "Auth", "Register", "Create a new workspace account.", "POST", "/api/auth/register", false, [], [
+    param("name", "Full name", "body", true, "string", "User full name."),
+    param("username", "Username", "body", true, "string", "Workspace username."),
+    param("email", "Email", "body", true, "string", "Workspace email address."),
+    param("password", "Password", "body", true, "string", "Account password."),
+  ], "Account created"),
   endpoint("auth-me", "Auth", "Current session", "Return the active local demo session.", "GET", "/api/auth/me", false, [], [], "Loaded current session"),
   endpoint("auth-logout", "Auth", "Sign out", "Clear the active local demo session.", "POST", "/api/auth/logout", false, [], [], "Signed out successfully"),
   endpoint("ping", "Utility", "Ping", "Basic health check endpoint.", "GET", "/api/ping", false, [], [], "Ping completed"),
@@ -460,7 +468,8 @@ function normalizeSiteBrand(value?: Partial<SiteBrandConfig>): SiteBrandConfig {
     ...DEFAULT_SITE_BRAND,
     ...value,
     splashSpinnerStyle: spinnerStyle,
-    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder),
+    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder, "login"),
+    registerBuilder: normalizeLoginBuilderConfig(value?.registerBuilder, "register"),
   };
 }
 
@@ -771,6 +780,49 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
     setSessionUser(account.user.id);
     const token = `static-${account.user.id}-${Date.now()}`;
     return apiSuccess<AuthToken>({ token, user: decorateUser(account.user) });
+  }
+
+  if (path === "/api/auth/register" && method === "POST") {
+    const name = String(body.name ?? "").trim();
+    const username = String(body.username ?? "").trim();
+    const email = String(body.email ?? "").trim();
+    const password = String(body.password ?? "");
+
+    if (!name || !username || !email || !password) {
+      return apiError(400, "Name, username, email, and password are required.");
+    }
+    if (password.length < 8) {
+      return apiError(400, "Password must be at least 8 characters.");
+    }
+
+    const normalizedUsername = username.toLowerCase();
+    const normalizedEmail = email.toLowerCase();
+    const accounts = getAccounts();
+    const duplicate = accounts.find(
+      (entry) =>
+        entry.user.username.toLowerCase() === normalizedUsername ||
+        entry.user.email.toLowerCase() === normalizedEmail,
+    );
+    if (duplicate) {
+      return apiError(400, "User username or email already exists.");
+    }
+
+    const now = new Date().toISOString();
+    const user: User = {
+      id: createId("user"),
+      username,
+      name,
+      email,
+      role: "operator",
+      roleName: "Store Operator",
+      permissions: [],
+      status: "Pending",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setAccounts([...accounts, { password, user }]);
+    return apiSuccess<User>(decorateUser(user), 201);
   }
 
   if (path === "/api/auth/logout" && method === "POST") {

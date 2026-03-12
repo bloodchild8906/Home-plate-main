@@ -22,6 +22,7 @@ import {
 } from "@/lib/theme-presets";
 import {
   createDefaultLoginBuilderConfig,
+  createDefaultRegisterBuilderConfig,
   normalizeLoginBuilderConfig,
 } from "@/lib/login-builder";
 
@@ -43,6 +44,7 @@ const DEFAULT_BRAND: SiteBrand = {
   splashSpinnerColor: "#ea580c",
   splashSpinnerAccent: "#f59e0b",
   loginBuilder: createDefaultLoginBuilderConfig(),
+  registerBuilder: createDefaultRegisterBuilderConfig(),
   themePresetId: DEFAULT_PLATFORM_THEME_PRESET_ID,
   fontPresetId: DEFAULT_FONT_PRESET_ID,
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
@@ -106,7 +108,8 @@ function normalizeBrand(value?: Partial<SiteBrand>) {
     splashSpinnerAccent: normalizeHex(
       value?.splashSpinnerAccent ?? DEFAULT_BRAND.splashSpinnerAccent,
     ),
-    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder),
+    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder, "login"),
+    registerBuilder: normalizeLoginBuilderConfig(value?.registerBuilder, "register"),
     themePresetId: value?.themePresetId?.trim() || DEFAULT_BRAND.themePresetId,
     fontPresetId,
     fontFamily: resolveFontFamily({

@@ -285,6 +285,7 @@ export type LoginBuilderBlockId =
   | "loginTitle"
   | "loginHint"
   | "loginForm"
+  | "registerForm"
   | "demoAccounts"
   | "footer";
 
@@ -315,6 +316,7 @@ export interface SiteBrandConfig {
   splashSpinnerColor: string;
   splashSpinnerAccent: string;
   loginBuilder: LoginBuilderConfig;
+  registerBuilder: LoginBuilderConfig;
   themePresetId: string;
   fontPresetId: string;
   fontFamily: string;

@@ -1,5 +1,7 @@
-import type { ChangeEvent, ReactNode } from "react";
+import { useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ImagePlus,
   Palette,
   RefreshCcw,
@@ -24,6 +26,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useBranding, type SiteBrand } from "@/lib/branding";
+import {
+  createDefaultLoginBuilderConfig,
+  createDefaultRegisterBuilderConfig,
+  LOGIN_BUILDER_LIBRARY,
+} from "@/lib/login-builder";
 import { readImageFileAsDataUrl } from "@/lib/asset-utils";
 import {
   buildUploadedFontFamily,
@@ -41,6 +48,7 @@ import {
 } from "@/lib/theme-presets";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import type { LoginBuilderBlockId } from "@shared/api";
 
 export default function Whitelabeling() {
   const { brand, updateBrand, resetBrand, saveBrand, isSaving } = useBranding();
@@ -135,12 +143,126 @@ export default function Whitelabeling() {
     });
   };
 
+  const [authBuilderTarget, setAuthBuilderTarget] = useState<"login" | "register">("login");
+  const activeBuilder =
+    authBuilderTarget === "login" ? brand.loginBuilder : brand.registerBuilder;
+
+  const isBlockAllowedForTarget = (blockId: LoginBuilderBlockId) => {
+    const definition = LOGIN_BUILDER_LIBRARY.find((entry) => entry.id === blockId);
+    if (!definition) return false;
+    if (!definition.requiredFor || definition.requiredFor === "both") return true;
+    return definition.requiredFor === authBuilderTarget;
+  };
+
+  const isBlockRequiredForTarget = (blockId: LoginBuilderBlockId) => {
+    const definition = LOGIN_BUILDER_LIBRARY.find((entry) => entry.id === blockId);
+    if (!definition?.requiredFor) return false;
+    if (definition.requiredFor === "both") return true;
+    return definition.requiredFor === authBuilderTarget;
+  };
+
+  const updateActiveBuilder = (
+    updater: (current: SiteBrand["loginBuilder"]) => SiteBrand["loginBuilder"],
+  ) => {
+    if (authBuilderTarget === "login") {
+      updateBrand({ loginBuilder: updater(brand.loginBuilder) });
+      return;
+    }
+    updateBrand({ registerBuilder: updater(brand.registerBuilder) });
+  };
+
+  const moveBuilderBlock = (
+    column: "leftBlocks" | "rightBlocks",
+    blockId: LoginBuilderBlockId,
+    direction: -1 | 1,
+  ) => {
+    updateActiveBuilder((current) => {
+      const blocks = [...current[column]];
+      const index = blocks.indexOf(blockId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= blocks.length) {
+        return current;
+      }
+
+      const nextBlocks = [...blocks];
+      const [item] = nextBlocks.splice(index, 1);
+      nextBlocks.splice(target, 0, item);
+      return { ...current, [column]: nextBlocks };
+    });
+  };
+
+  const addBuilderBlock = (
+    column: "leftBlocks" | "rightBlocks",
+    blockId: LoginBuilderBlockId,
+  ) => {
+    if (!isBlockAllowedForTarget(blockId)) {
+      return;
+    }
+
+    updateActiveBuilder((current) => {
+      const nextLeft = current.leftBlocks.filter((item) => item !== blockId);
+      const nextRight = current.rightBlocks.filter((item) => item !== blockId);
+      const target = column === "leftBlocks" ? nextLeft : nextRight;
+      target.push(blockId);
+
+      return {
+        ...current,
+        leftBlocks: nextLeft,
+        rightBlocks: nextRight,
+        [column]: target,
+      };
+    });
+  };
+
+  const removeBuilderBlock = (blockId: LoginBuilderBlockId) => {
+    if (isBlockRequiredForTarget(blockId)) {
+      return;
+    }
+
+    updateActiveBuilder((current) => ({
+      ...current,
+      leftBlocks: current.leftBlocks.filter((item) => item !== blockId),
+      rightBlocks: current.rightBlocks.filter((item) => item !== blockId),
+    }));
+  };
+
+  const onLibraryDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const blockId = event.dataTransfer.getData("text/x-homeplate-auth-block") as LoginBuilderBlockId;
+    if (!blockId) return;
+    removeBuilderBlock(blockId);
+  };
+
+  const onColumnDrop =
+    (column: "leftBlocks" | "rightBlocks") => (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const blockId = event.dataTransfer.getData("text/x-homeplate-auth-block") as LoginBuilderBlockId;
+      if (!blockId) return;
+      addBuilderBlock(column, blockId);
+    };
+
+  const onBlockDragStart = (event: DragEvent<HTMLElement>, blockId: LoginBuilderBlockId) => {
+    event.dataTransfer.setData("text/x-homeplate-auth-block", blockId);
+    event.dataTransfer.effectAllowed = "move";
+  };
+
+  const assignedBlocks = new Set([
+    ...activeBuilder.leftBlocks,
+    ...activeBuilder.rightBlocks,
+  ]);
+  const availableBlocks = LOGIN_BUILDER_LIBRARY.filter(
+    (entry) => isBlockAllowedForTarget(entry.id) && !assignedBlocks.has(entry.id),
+  );
+
   return (
     <AppShell
       title="Whitelabeling"
       description="These branding settings apply site-wide across the dashboard, designer shell, and module chrome."
       actions={
         <>
+          <Button variant="outline" asChild>
+            <a href="#auth-page-builder">Launch Builder</a>
+          </Button>
           <Button variant="outline" onClick={() => resetBrand()}>
             <RefreshCcw className="mr-2 h-4 w-4" />
             Reset
@@ -296,7 +418,7 @@ export default function Whitelabeling() {
               />
             </div>
 
-            <div className="rounded-[2rem] border border-border/60 bg-muted/10 p-4">
+            <div id="auth-page-builder" className="scroll-mt-24 rounded-[2rem] border border-border/60 bg-muted/10 p-4">
               <div className="flex items-center gap-2 text-sm font-black">
                 <Sparkles className="h-4 w-4" />
                 Splash and loader
@@ -355,6 +477,307 @@ export default function Whitelabeling() {
                     value={brand.splashSpinnerAccent}
                     onChange={(value) => updateBrand({ splashSpinnerAccent: value })}
                   />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-border/60 bg-muted/10 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-black">
+                    <Palette className="h-4 w-4" />
+                    Login & register page builder
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Drag blocks into left/right columns and adjust layout tokens for each auth page.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-2xl"
+                  onClick={() =>
+                    authBuilderTarget === "login"
+                      ? updateBrand({ loginBuilder: createDefaultLoginBuilderConfig() })
+                      : updateBrand({ registerBuilder: createDefaultRegisterBuilderConfig() })
+                  }
+                >
+                  Reset {authBuilderTarget === "login" ? "Login" : "Register"}
+                </Button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={authBuilderTarget === "login" ? "default" : "outline"}
+                  className="rounded-2xl"
+                  onClick={() => setAuthBuilderTarget("login")}
+                >
+                  Login page
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={authBuilderTarget === "register" ? "default" : "outline"}
+                  className="rounded-2xl"
+                  onClick={() => setAuthBuilderTarget("register")}
+                >
+                  Register page
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Field label="Layout mode">
+                  <Select
+                    value={activeBuilder.layout}
+                    onValueChange={(value) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        layout: value as SiteBrand["loginBuilder"]["layout"],
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="rounded-2xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="split">Split</SelectItem>
+                      <SelectItem value="stacked">Stacked</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Feature tile columns">
+                  <Select
+                    value={String(activeBuilder.featureColumns)}
+                    onValueChange={(value) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        featureColumns: Number(value) as 1 | 2 | 3,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="rounded-2xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 column</SelectItem>
+                      <SelectItem value="2">2 columns</SelectItem>
+                      <SelectItem value="3">3 columns</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Hero width % (split)">
+                  <Input
+                    type="number"
+                    min={35}
+                    max={70}
+                    value={activeBuilder.heroWidth}
+                    onChange={(event) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        heroWidth: Math.max(35, Math.min(70, Number(event.target.value) || 58)),
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Card radius">
+                  <Input
+                    type="number"
+                    min={16}
+                    max={44}
+                    value={activeBuilder.cardRadius}
+                    onChange={(event) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        cardRadius: Math.max(16, Math.min(44, Number(event.target.value) || 32)),
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Hero panel opacity %">
+                  <Input
+                    type="number"
+                    min={4}
+                    max={24}
+                    value={activeBuilder.heroPanelOpacity}
+                    onChange={(event) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        heroPanelOpacity: Math.max(4, Math.min(24, Number(event.target.value) || 8)),
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Auth panel opacity %">
+                  <Input
+                    type="number"
+                    min={45}
+                    max={90}
+                    value={activeBuilder.authPanelOpacity}
+                    onChange={(event) =>
+                      updateActiveBuilder((current) => ({
+                        ...current,
+                        authPanelOpacity: Math.max(45, Math.min(90, Number(event.target.value) || 70)),
+                      }))
+                    }
+                  />
+                </Field>
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr_0.85fr]">
+                <div
+                  className="rounded-3xl border border-border/60 bg-background/80 p-3"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={onColumnDrop("leftBlocks")}
+                >
+                  <div className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                    Left column
+                  </div>
+                  <div className="space-y-2">
+                    {activeBuilder.leftBlocks.map((blockId, index) => {
+                      const block = LOGIN_BUILDER_LIBRARY.find((entry) => entry.id === blockId);
+                      if (!block) return null;
+                      const required = isBlockRequiredForTarget(blockId);
+                      return (
+                        <div
+                          key={`left-${blockId}`}
+                          draggable
+                          onDragStart={(event) => onBlockDragStart(event, blockId)}
+                          className="rounded-2xl border border-border/60 bg-background p-3"
+                        >
+                          <div className="text-sm font-semibold">{block.label}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{block.description}</div>
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-7 w-7"
+                              onClick={() => moveBuilderBlock("leftBlocks", blockId, -1)}
+                              disabled={index === 0}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-7 w-7"
+                              onClick={() => moveBuilderBlock("leftBlocks", blockId, 1)}
+                              disabled={index >= activeBuilder.leftBlocks.length - 1}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              onClick={() => removeBuilderBlock(blockId)}
+                              disabled={required}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  className="rounded-3xl border border-border/60 bg-background/80 p-3"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={onColumnDrop("rightBlocks")}
+                >
+                  <div className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                    Right column
+                  </div>
+                  <div className="space-y-2">
+                    {activeBuilder.rightBlocks.map((blockId, index) => {
+                      const block = LOGIN_BUILDER_LIBRARY.find((entry) => entry.id === blockId);
+                      if (!block) return null;
+                      const required = isBlockRequiredForTarget(blockId);
+                      return (
+                        <div
+                          key={`right-${blockId}`}
+                          draggable
+                          onDragStart={(event) => onBlockDragStart(event, blockId)}
+                          className="rounded-2xl border border-border/60 bg-background p-3"
+                        >
+                          <div className="text-sm font-semibold">{block.label}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{block.description}</div>
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-7 w-7"
+                              onClick={() => moveBuilderBlock("rightBlocks", blockId, -1)}
+                              disabled={index === 0}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-7 w-7"
+                              onClick={() => moveBuilderBlock("rightBlocks", blockId, 1)}
+                              disabled={index >= activeBuilder.rightBlocks.length - 1}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              onClick={() => removeBuilderBlock(blockId)}
+                              disabled={required}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  className="rounded-3xl border border-dashed border-border/60 bg-background/50 p-3"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={onLibraryDrop}
+                >
+                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                    Block library
+                  </div>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Drag to a column, or drop a block here to remove it.
+                  </p>
+                  <div className="space-y-2">
+                    {availableBlocks.map((block) => (
+                      <button
+                        key={`lib-${block.id}`}
+                        type="button"
+                        draggable
+                        onDragStart={(event) => onBlockDragStart(event, block.id)}
+                        onClick={() => addBuilderBlock(block.recommendedColumn === "left" ? "leftBlocks" : "rightBlocks", block.id)}
+                        className="w-full rounded-2xl border border-border/60 bg-background px-3 py-2 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                      >
+                        <div className="text-sm font-semibold">{block.label}</div>
+                        <div className="text-xs text-muted-foreground">{block.description}</div>
+                      </button>
+                    ))}
+                    {availableBlocks.length === 0 ? (
+                      <div className="rounded-2xl border border-border/60 bg-background p-3 text-xs text-muted-foreground">
+                        All available blocks are already assigned.
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>

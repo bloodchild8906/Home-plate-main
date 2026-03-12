@@ -152,6 +152,17 @@ const DEFAULT_LOGIN_BUILDER: LoginBuilderConfig = {
   rightBlocks: ["loginTitle", "loginHint", "loginForm", "demoAccounts", "footer"],
 };
 
+const DEFAULT_REGISTER_BUILDER: LoginBuilderConfig = {
+  layout: "split",
+  heroWidth: 58,
+  cardRadius: 32,
+  heroPanelOpacity: 8,
+  authPanelOpacity: 70,
+  featureColumns: 2,
+  leftBlocks: ["badge", "brand", "headline", "description", "featureTiles"],
+  rightBlocks: ["loginTitle", "loginHint", "registerForm", "footer"],
+};
+
 const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   name: "HomePlate",
   tagline: "Restaurant app platform",
@@ -168,6 +179,7 @@ const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   splashSpinnerColor: "#ea580c",
   splashSpinnerAccent: "#f59e0b",
   loginBuilder: { ...DEFAULT_LOGIN_BUILDER },
+  registerBuilder: { ...DEFAULT_REGISTER_BUILDER },
   themePresetId: "ember-control",
   fontPresetId: "manrope",
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',

@@ -125,7 +125,7 @@ export function AppShell({
               </Tooltip>
             </div>
 
-            <div className="mt-6 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            <div className="mt-6 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 hide-scrollbar">
               {groupedRoutes.map((group) => (
                 <section key={group.category} className="space-y-1.5">
                   <div
@@ -144,6 +144,11 @@ export function AppShell({
                       const Icon = route.icon;
                       const canAccess = hasAccess(route.requiredPermissions);
                       const isActive = location.pathname === route.path;
+                      const collapsedCardTone = sidebarCollapsed
+                        ? isActive
+                          ? "border-white/35 bg-gradient-to-b from-white to-white/90 text-slate-950 shadow-[0_14px_28px_-18px_rgba(2,6,23,0.75)]"
+                          : "border-white/10 bg-gradient-to-b from-white/[0.12] to-white/[0.04] hover:border-white/25 hover:from-white/[0.2] hover:to-white/[0.1]"
+                        : "";
 
                       return canAccess ? (
                         <Link
@@ -155,15 +160,21 @@ export function AppShell({
                             sidebarCollapsed
                               ? "flex-col items-center justify-center px-1.5 py-2 text-center"
                               : "items-center gap-3 px-3 py-3",
-                            isActive
-                              ? "border-white/20 bg-white text-slate-950 shadow-xl"
-                              : "border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10",
+                            sidebarCollapsed
+                              ? collapsedCardTone
+                              : isActive
+                                ? "border-white/20 bg-white text-slate-950 shadow-xl"
+                                : "border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10",
                           )}
                         >
                           <div
                             className={cn(
                               "flex h-7 w-7 items-center justify-center rounded-xl",
-                              isActive ? "bg-slate-950 text-white" : "bg-white/10 text-white",
+                              isActive
+                                ? "bg-slate-950 text-white"
+                                : sidebarCollapsed
+                                  ? "bg-gradient-to-br from-amber-400/30 to-orange-500/30 text-amber-50 ring-1 ring-white/20"
+                                  : "bg-white/10 text-white",
                             )}
                           >
                             <Icon className="h-3 w-3" />
@@ -171,7 +182,7 @@ export function AppShell({
                           {sidebarCollapsed ? (
                             <div
                               className="mt-1 max-w-full text-[9px] font-semibold leading-3"
-                              style={{ color: isActive ? "hsl(var(--foreground))" : "white" }}
+                              style={{ color: isActive ? "hsl(var(--foreground))" : "rgb(248 250 252)" }}
                             >
                               {route.title}
                             </div>
@@ -233,41 +244,6 @@ export function AppShell({
               ))}
             </div>
 
-            <div
-              className={cn(
-                "mt-auto sticky bottom-3 z-20 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-sm",
-                sidebarCollapsed ? "p-2.5" : "p-4",
-              )}
-            >
-              {sidebarCollapsed ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/10 text-white">
-                    <UserRound className="h-3.5 w-3.5" />
-                  </div>
-                  {user ? (
-                    <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                      {getUserRoleLabel(user)}
-                    </Badge>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <div className="mb-2 flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/10 text-white">
-                      <UserRound className="h-3.5 w-3.5" />
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-bold">{user?.name}</div>
-                      <div className="text-[10px]" style={{ color: "var(--brand-panel-muted)" }}>{user?.email}</div>
-                    </div>
-                  </div>
-                  <div className="mb-2 flex items-center justify-between rounded-2xl bg-black/20 px-2.5 py-1.5 text-[11px]">
-                    <span style={{ color: "var(--brand-panel-muted)" }}>Signed in as</span>
-                    <span className="font-bold">{user ? getUserRoleLabel(user) : "Unknown"}</span>
-                  </div>
-                </>
-              )}
-            </div>
           </aside>
         )}
 

@@ -34,6 +34,7 @@ export function createServer() {
 
   // ============ AUTH ROUTES ============
   app.post("/api/auth/login", authController.login);
+  app.post("/api/auth/register", authController.register);
   app.get("/api/auth/me", authController.getSessionUser);
   app.post("/api/auth/logout", authController.logout);
 

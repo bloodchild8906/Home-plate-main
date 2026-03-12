@@ -28,6 +28,7 @@ const BlockBuilder = lazy(() => import("./pages/BlockBuilder"));
 const FunctionBuilder = lazy(() => import("./pages/FunctionBuilder"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
 const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
 const BuilderWorkspaceRoute = lazy(() => import("./routes/BuilderWorkspaceRoute"));
 
 const queryClient = new QueryClient();
@@ -50,6 +51,7 @@ const App = () => (
               <Suspense fallback={<RouteLoader />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
                   <Route
                     path="/"
                     element={
@@ -143,6 +145,7 @@ const App = () => (
               <Suspense fallback={<RouteLoader />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
                   <Route
                     path="/"
                     element={

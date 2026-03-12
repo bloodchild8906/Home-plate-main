@@ -4,6 +4,7 @@ import {
   authenticateUser,
   createAuthSession,
   deleteAuthSession,
+  saveUser,
 } from "../lib/database";
 import { SESSION_COOKIE_NAME } from "../middleware/rbac";
 
@@ -65,6 +66,56 @@ export const login: RequestHandler = async (req, res) => {
       user,
     },
   } satisfies ApiResponse<AuthToken>);
+};
+
+export const register: RequestHandler = async (req, res) => {
+  const username = String(req.body?.username ?? "").trim();
+  const email = String(req.body?.email ?? "").trim();
+  const name = String(req.body?.name ?? "").trim();
+  const password = String(req.body?.password ?? "");
+
+  if (!username || !email || !name || !password) {
+    return res.status(400).json({
+      success: false,
+      error: "Name, username, email, and password are required.",
+    } satisfies ApiResponse<never>);
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({
+      success: false,
+      error: "Password must be at least 8 characters.",
+    } satisfies ApiResponse<never>);
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const created = await saveUser(
+      {
+        id: `user-${Date.now()}`,
+        username,
+        email,
+        name,
+        role: "operator",
+        roleName: "",
+        permissions: [],
+        status: "Pending",
+        createdAt: now,
+        updatedAt: now,
+      },
+      password,
+    );
+
+    res.status(201).json({
+      success: true,
+      data: created,
+    } satisfies ApiResponse<User>);
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to register account",
+    } satisfies ApiResponse<never>);
+  }
 };
 
 export const getSessionUser: RequestHandler = (req, res) => {
