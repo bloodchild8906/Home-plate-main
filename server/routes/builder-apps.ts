@@ -37,14 +37,14 @@ const builderAppsSchema = z.array(
   }).passthrough(),
 );
 
-export const getBuilderApps: RequestHandler = (_req, res) => {
+export const getBuilderApps: RequestHandler = async (_req, res) => {
   res.status(200).json({
     success: true,
-    data: getBuilderAppsConfig(),
+    data: await getBuilderAppsConfig(),
   } satisfies ApiResponse<BuilderPersistedApp[] | null>);
 };
 
-export const replaceBuilderApps: RequestHandler = (req, res) => {
+export const replaceBuilderApps: RequestHandler = async (req, res) => {
   const parsed = builderAppsSchema.safeParse(req.body?.apps);
 
   if (!parsed.success) {
@@ -54,7 +54,7 @@ export const replaceBuilderApps: RequestHandler = (req, res) => {
     });
   }
 
-  const apps = setBuilderAppsConfig(parsed.data as BuilderPersistedApp[]);
+  const apps = await setBuilderAppsConfig(parsed.data as BuilderPersistedApp[]);
   res.status(200).json({
     success: true,
     data: apps,

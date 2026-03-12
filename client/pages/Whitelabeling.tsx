@@ -4,11 +4,13 @@ import {
   Palette,
   RefreshCcw,
   Save,
+  Sparkles,
   Trash2,
   Type,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { BrandMark } from "@/components/brand-mark";
+import { SplashScreen } from "@/components/splash-screen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useBranding } from "@/lib/branding";
+import { useBranding, type SiteBrand } from "@/lib/branding";
 import { readImageFileAsDataUrl } from "@/lib/asset-utils";
 import {
   buildUploadedFontFamily,
@@ -296,6 +298,69 @@ export default function Whitelabeling() {
 
             <div className="rounded-[2rem] border border-border/60 bg-muted/10 p-4">
               <div className="flex items-center gap-2 text-sm font-black">
+                <Sparkles className="h-4 w-4" />
+                Splash and loader
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Control the first-screen splash and loading spinner visuals.
+              </p>
+              <div className="mt-4 space-y-4">
+                <Field label="Splash title">
+                  <Input
+                    value={brand.splashTitle}
+                    onChange={(event) => updateBrand({ splashTitle: event.target.value })}
+                  />
+                </Field>
+                <Field label="Splash subtitle">
+                  <Input
+                    value={brand.splashSubtitle}
+                    onChange={(event) => updateBrand({ splashSubtitle: event.target.value })}
+                  />
+                </Field>
+                <Field label="Spinner style">
+                  <Select
+                    value={brand.splashSpinnerStyle}
+                    onValueChange={(value) =>
+                      updateBrand({
+                        splashSpinnerStyle: value as SiteBrand["splashSpinnerStyle"],
+                      })
+                    }
+                  >
+                    <SelectTrigger className="rounded-2xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ring">Ring</SelectItem>
+                      <SelectItem value="dots">Dots</SelectItem>
+                      <SelectItem value="pulse">Pulse</SelectItem>
+                      <SelectItem value="bars">Bars</SelectItem>
+                      <SelectItem value="dual-ring">Dual Ring</SelectItem>
+                      <SelectItem value="orbit">Orbit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="grid grid-cols-3 gap-4">
+                  <ColorField
+                    label="Splash bg"
+                    value={brand.splashBackgroundColor}
+                    onChange={(value) => updateBrand({ splashBackgroundColor: value })}
+                  />
+                  <ColorField
+                    label="Spinner"
+                    value={brand.splashSpinnerColor}
+                    onChange={(value) => updateBrand({ splashSpinnerColor: value })}
+                  />
+                  <ColorField
+                    label="Spinner accent"
+                    value={brand.splashSpinnerAccent}
+                    onChange={(value) => updateBrand({ splashSpinnerAccent: value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-border/60 bg-muted/10 p-4">
+              <div className="flex items-center gap-2 text-sm font-black">
                 <Type className="h-4 w-4" />
                 Font library
               </div>
@@ -441,6 +506,14 @@ export default function Whitelabeling() {
               <p className="mt-3 text-sm text-muted-foreground">
                 Changes here immediately affect shared buttons, cards, inputs, shell navigation, headers, and the stored site logo, favicon, and font stack throughout the workspace.
               </p>
+            </div>
+            <div className="space-y-3 rounded-3xl border border-border/60 bg-muted/20 p-5">
+              <div className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                Splash preview
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-border/60">
+                <SplashScreen fullScreen={false} />
+              </div>
             </div>
           </CardContent>
         </Card>

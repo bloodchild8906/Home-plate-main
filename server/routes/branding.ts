@@ -7,17 +7,17 @@ import {
   saveBrandingConfig,
 } from "../lib/database";
 
-export const getBrandingConfigs: RequestHandler = (_req, res) => {
+export const getBrandingConfigs: RequestHandler = async (_req, res) => {
   const response: ApiResponse<BrandingConfig[]> = {
     success: true,
-    data: listBrandingConfigs(),
+    data: await listBrandingConfigs(),
   };
 
   res.status(200).json(response);
 };
 
-export const getBrandingConfigById: RequestHandler = (req, res) => {
-  const config = getBrandingConfig(req.params.id);
+export const getBrandingConfigById: RequestHandler = async (req, res) => {
+  const config = await getBrandingConfig(req.params.id);
 
   if (!config) {
     return res.status(404).json({
@@ -32,7 +32,7 @@ export const getBrandingConfigById: RequestHandler = (req, res) => {
   } satisfies ApiResponse<BrandingConfig>);
 };
 
-export const createBrandingConfig: RequestHandler = (req, res) => {
+export const createBrandingConfig: RequestHandler = async (req, res) => {
   const newConfig: BrandingConfig = {
     id: `brand-${Date.now()}`,
     brandName: String(req.body?.brandName ?? "").trim(),
@@ -48,15 +48,15 @@ export const createBrandingConfig: RequestHandler = (req, res) => {
         : "inter",
   };
 
-  saveBrandingConfig(newConfig);
+  await saveBrandingConfig(newConfig);
   res.status(201).json({
     success: true,
     data: newConfig,
   } satisfies ApiResponse<BrandingConfig>);
 };
 
-export const updateBrandingConfig: RequestHandler = (req, res) => {
-  const current = getBrandingConfig(req.params.id);
+export const updateBrandingConfig: RequestHandler = async (req, res) => {
+  const current = await getBrandingConfig(req.params.id);
 
   if (!current) {
     return res.status(404).json({
@@ -75,15 +75,15 @@ export const updateBrandingConfig: RequestHandler = (req, res) => {
         : current.fontFamily,
   };
 
-  saveBrandingConfig(nextConfig);
+  await saveBrandingConfig(nextConfig);
   res.status(200).json({
     success: true,
     data: nextConfig,
   } satisfies ApiResponse<BrandingConfig>);
 };
 
-export const deleteBrandingConfig: RequestHandler = (req, res) => {
-  const deleted = deleteBrandingConfigRecord(req.params.id);
+export const deleteBrandingConfig: RequestHandler = async (req, res) => {
+  const deleted = await deleteBrandingConfigRecord(req.params.id);
 
   if (!deleted) {
     return res.status(404).json({
@@ -98,8 +98,8 @@ export const deleteBrandingConfig: RequestHandler = (req, res) => {
   } satisfies ApiResponse<BrandingConfig>);
 };
 
-export const deployBrandingConfig: RequestHandler = (req, res) => {
-  const config = getBrandingConfig(req.params.id);
+export const deployBrandingConfig: RequestHandler = async (req, res) => {
+  const config = await getBrandingConfig(req.params.id);
 
   if (!config) {
     return res.status(404).json({
@@ -119,8 +119,8 @@ export const deployBrandingConfig: RequestHandler = (req, res) => {
   });
 };
 
-export const getThemeVariables: RequestHandler = (req, res) => {
-  const config = getBrandingConfig(req.params.id);
+export const getThemeVariables: RequestHandler = async (req, res) => {
+  const config = await getBrandingConfig(req.params.id);
 
   if (!config) {
     return res.status(404).json({

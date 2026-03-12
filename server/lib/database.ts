@@ -1,48 +1,79 @@
-import { mkdirSync } from "node:fs";
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
-import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+﻿import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import {
+  type AccessModuleRequirement,
+  type AccessRole,
   type BrandingConfig,
   type BuilderPersistedApp,
   type DashboardPreferencesConfig,
+  type LoginBuilderConfig,
   type Member,
+  type MemberTagDefinition,
   type Menu,
-  type Role,
+  type PermissionId,
   type RewardProgram,
+  type Role,
   type SiteBrandConfig,
   type User,
   type UserStatus,
 } from "@shared/api";
+import {
+  DEFAULT_ACCESS_ROLES,
+  DEFAULT_MODULE_REQUIREMENTS,
+} from "@shared/access-control";
+import { assertSupabaseConfigured, supabaseRequest } from "./supabase";
+
+type ConfigRow = {
+  key: string;
+  value_json: unknown;
+  updated_at: string;
+};
 
 type MenuRow = {
   id: string;
   name: string;
   location: string;
-  items_json: string;
+  items_json: unknown;
+  specials_json: unknown;
   created_at: string;
   updated_at: string;
 };
 
-type RewardRow = {
+type RewardProgramRow = {
   id: string;
   name: string;
-  points_per_dollar: number;
-  tiers_json: string;
-  redemptions_json: string;
+  points_per_dollar: number | string;
+  tiers_json: unknown;
+  redemptions_json: unknown;
+  point_generators_json: unknown;
   created_at: string;
   updated_at: string;
 };
 
 type MemberRow = {
   id: string;
+  username: string;
   email: string;
   name: string;
+  status: Member["status"];
   phone: string | null;
-  loyalty_points: number;
+  loyalty_points: number | string;
   tier: string;
   join_date: string;
   last_visit: string | null;
+  favorite_location: string | null;
+  address: string | null;
+  date_of_birth: string | null;
+  notes: string | null;
+  tags_json: unknown;
+  marketing_opt_in: boolean | null;
+  total_spend: number | string | null;
+  visits: number | string | null;
+  avatar: string | null;
+  password_hash: string | null;
+  password_updated_at: string | null;
+  companion_access_code: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type BrandingRow = {
@@ -64,17 +95,62 @@ type UserRow = {
   name: string;
   role: Role;
   status: UserStatus;
+  phone: string | null;
+  title: string | null;
+  department: string | null;
+  notes: string | null;
+  avatar: string | null;
   password_hash: string;
+  last_login_at: string | null;
   created_at: string;
+  updated_at: string | null;
 };
 
 type SessionRow = {
   token_hash: string;
   user_id: string;
   expires_at: string;
+  created_at: string;
 };
 
-const DATABASE_PATH = resolve(process.cwd(), "data", "homeplate.sqlite");
+type SeedUser = {
+  id: string;
+  username: string;
+  email: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  phone?: string;
+  title?: string;
+  department?: string;
+  notes?: string;
+  avatar?: string;
+  password: string;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+};
+
+const CONFIG_KEYS = {
+  accessRoles: "access_roles",
+  siteBrand: "site_brand",
+  builderApps: "builder_apps",
+  memberTags: "member_tags",
+  moduleRequirements: "module_requirements",
+} as const;
+
+const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7;
+const NOW = "2026-03-12T00:00:00.000Z";
+const DEFAULT_LOGIN_BUILDER: LoginBuilderConfig = {
+  layout: "split",
+  heroWidth: 58,
+  cardRadius: 32,
+  heroPanelOpacity: 8,
+  authPanelOpacity: 70,
+  featureColumns: 3,
+  leftBlocks: ["badge", "brand", "headline", "description", "featureTiles"],
+  rightBlocks: ["loginTitle", "loginHint", "loginForm", "demoAccounts", "footer"],
+};
 
 const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   name: "HomePlate",
@@ -85,6 +161,13 @@ const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
+  splashTitle: "Loading workspace...",
+  splashSubtitle: "Preparing your command center.",
+  splashBackgroundColor: "#0f172a",
+  splashSpinnerStyle: "ring",
+  splashSpinnerColor: "#ea580c",
+  splashSpinnerAccent: "#f59e0b",
+  loginBuilder: { ...DEFAULT_LOGIN_BUILDER },
   themePresetId: "ember-control",
   fontPresetId: "manrope",
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
@@ -106,6 +189,9 @@ const SEEDED_MENUS: Menu[] = [
         description: "Premium beef burger with special sauce",
         price: 14.99,
         category: "Burgers",
+        featured: true,
+        available: true,
+        specialLabel: "Best seller",
       },
       {
         id: "item-2",
@@ -113,10 +199,26 @@ const SEEDED_MENUS: Menu[] = [
         description: "Fresh romaine lettuce with house-made dressing",
         price: 9.99,
         category: "Salads",
+        available: true,
       },
     ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    specials: [
+      {
+        id: "special-1",
+        title: "Lunch Rush Combo",
+        description: "Signature Burger plus fries with a same-day promo price.",
+        itemId: "item-1",
+        bannerText: "Lunch rush",
+        promoCode: "LUNCH25",
+        specialPrice: 12.99,
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        active: true,
+        channels: ["qr", "text_code"],
+      },
+    ],
+    createdAt: NOW,
+    updatedAt: NOW,
   },
 ];
 
@@ -143,7 +245,7 @@ const SEEDED_REWARDS: RewardProgram[] = [
         id: "tier-3",
         name: "Gold",
         pointsRequired: 1000,
-        description: "Get 10% discount + free item",
+        description: "Get 10% discount plus a free item",
         discount: 10,
         freeItem: "Appetizer",
       },
@@ -174,31 +276,75 @@ const SEEDED_REWARDS: RewardProgram[] = [
         description: "Unlock priority reservation windows for peak seating.",
       },
     ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    pointGenerators: [
+      {
+        id: "generator-1",
+        name: "In-store welcome scan",
+        kind: "qr",
+        points: 50,
+        code: "WELCOME50",
+        payload: "homeplate://points/program-1/WELCOME50",
+        description: "Companion app QR used at the register for first-purchase welcome points.",
+        createdAt: "2026-03-11T09:00:00.000Z",
+        expiresAt: "2026-04-11T23:59:59.000Z",
+        redemptionCount: 14,
+      },
+    ],
+    createdAt: NOW,
+    updatedAt: NOW,
   },
 ];
 
-const SEEDED_MEMBERS: Member[] = [
+const SEEDED_MEMBERS: Array<Member & { password?: string }> = [
   {
     id: "member-1",
+    username: "john.doe",
     email: "john@example.com",
     name: "John Doe",
+    status: "Active",
     phone: "555-1234",
     loyaltyPoints: 2500,
     tier: "Gold",
     joinDate: "2023-01-15",
     lastVisit: "2024-03-08",
+    favoriteLocation: "Downtown",
+    address: "18 Market Street",
+    dateOfBirth: "1990-07-11",
+    notes: "Prefers in-app specials and weekend offers.",
+    tags: ["vip", "weekday"],
+    marketingOptIn: true,
+    totalSpend: 1840,
+    visits: 32,
+    avatar: "",
+    passwordSet: true,
+    passwordUpdatedAt: "2026-03-10T14:20:00.000Z",
+    companionAccessCode: "HP-JD-1024",
+    password: "welcome123!",
   },
   {
     id: "member-2",
+    username: "jane.smith",
     email: "jane@example.com",
     name: "Jane Smith",
+    status: "Pending",
     phone: "555-5678",
     loyaltyPoints: 1200,
     tier: "Silver",
     joinDate: "2023-06-20",
     lastVisit: "2024-03-05",
+    favoriteLocation: "Waterfront",
+    address: "4 Beach Road",
+    dateOfBirth: "1994-11-05",
+    notes: "Needs onboarding follow-up for companion app.",
+    tags: ["new-app"],
+    marketingOptIn: false,
+    totalSpend: 620,
+    visits: 11,
+    avatar: "",
+    passwordSet: true,
+    passwordUpdatedAt: "2026-03-08T10:00:00.000Z",
+    companionAccessCode: "HP-JS-8842",
+    password: "welcome123!",
   },
 ];
 
@@ -206,9 +352,9 @@ const SEEDED_BRANDING_CONFIGS: BrandingConfig[] = [
   {
     id: "brand-1",
     brandName: "HomePlate Main",
-    primaryColor: "#DC2626",
-    secondaryColor: "#7C2D12",
-    accentColor: "#FF8C00",
+    primaryColor: "#dc2626",
+    secondaryColor: "#7c2d12",
+    accentColor: "#f59e0b",
     fontFamily: "inter",
     customDomain: "homeplate.app",
     logo: "https://via.placeholder.com/200",
@@ -216,27 +362,16 @@ const SEEDED_BRANDING_CONFIGS: BrandingConfig[] = [
   },
   {
     id: "brand-2",
-    brandName: "Premium Restaurant",
-    primaryColor: "#8B5CF6",
-    secondaryColor: "#4C1D95",
-    accentColor: "#EC4899",
+    brandName: "Harbor Dining",
+    primaryColor: "#0f766e",
+    secondaryColor: "#164e63",
+    accentColor: "#f97316",
     fontFamily: "playfair",
-    customDomain: "premium.homeplate.app",
+    customDomain: "harbor.homeplate.app",
   },
 ];
 
-const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7;
-
-const SEEDED_USERS: Array<{
-  id: string;
-  username: string;
-  email: string;
-  name: string;
-  role: Role;
-  status: UserStatus;
-  password: string;
-  createdAt: string;
-}> = [
+const SEEDED_USERS: SeedUser[] = [
   {
     id: "user-admin",
     username: "admin",
@@ -244,8 +379,14 @@ const SEEDED_USERS: Array<{
     name: "Michael Brown",
     role: "admin",
     status: "Active",
+    phone: "555-1000",
+    title: "Platform Administrator",
+    department: "Leadership",
+    notes: "Owns workspace configuration and security policy.",
     password: "admin123!",
     createdAt: "2025-01-03T09:00:00.000Z",
+    updatedAt: NOW,
+    lastLoginAt: "2026-03-11T08:45:00.000Z",
   },
   {
     id: "user-designer",
@@ -254,8 +395,14 @@ const SEEDED_USERS: Array<{
     name: "Ava Patel",
     role: "designer",
     status: "Active",
+    phone: "555-1100",
+    title: "Experience Designer",
+    department: "Product",
+    notes: "Owns app builder and whitelabel output.",
     password: "design123!",
     createdAt: "2025-01-04T09:00:00.000Z",
+    updatedAt: NOW,
+    lastLoginAt: "2026-03-11T07:30:00.000Z",
   },
   {
     id: "user-operator",
@@ -264,8 +411,13 @@ const SEEDED_USERS: Array<{
     name: "Jordan Kim",
     role: "operator",
     status: "Pending",
+    phone: "555-1200",
+    title: "Store Operator",
+    department: "Operations",
+    notes: "Runs menu, members, and rewards operations.",
     password: "store123!",
     createdAt: "2025-01-05T09:00:00.000Z",
+    updatedAt: NOW,
   },
   {
     id: "user-analyst",
@@ -274,117 +426,169 @@ const SEEDED_USERS: Array<{
     name: "Nina Cole",
     role: "analyst",
     status: "Active",
+    phone: "555-1300",
+    title: "Growth Analyst",
+    department: "Insights",
+    notes: "Tracks revenue, loyalty, and campaign analytics.",
     password: "insight123!",
     createdAt: "2025-01-06T09:00:00.000Z",
+    updatedAt: NOW,
+    lastLoginAt: "2026-03-11T06:50:00.000Z",
   },
 ];
 
-mkdirSync(dirname(DATABASE_PATH), { recursive: true });
+let initializationPromise: Promise<void> | null = null;
+function buildQuery(params: Record<string, string | number | boolean | undefined>) {
+  const search = new URLSearchParams();
 
-const database = new DatabaseSync(DATABASE_PATH);
-database.exec(`
-  PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS config_store (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS menus (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    location TEXT NOT NULL,
-    items_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS reward_programs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    points_per_dollar REAL NOT NULL,
-    tiers_json TEXT NOT NULL,
-    redemptions_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS members (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    phone TEXT,
-    loyalty_points INTEGER NOT NULL,
-    tier TEXT NOT NULL,
-    join_date TEXT NOT NULL,
-    last_visit TEXT
-  );
-  CREATE TABLE IF NOT EXISTS branding_configs (
-    id TEXT PRIMARY KEY,
-    brand_name TEXT NOT NULL,
-    primary_color TEXT NOT NULL,
-    secondary_color TEXT NOT NULL,
-    accent_color TEXT NOT NULL,
-    logo TEXT,
-    favicon TEXT,
-    custom_domain TEXT,
-    font_family TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    status TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS auth_sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-`);
-
-function parseJson<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) {
-    return fallback;
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      search.set(key, String(value));
+    }
   }
 
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
+  const query = search.toString();
+  return query ? `?${query}` : "";
 }
 
-function upsertConfig<T>(key: string, value: T) {
+function readJson<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  return value as T;
+}
+
+function toNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeLogin(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeTags(tags: string[]) {
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => String(tag).trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+const TAG_COLOR_PALETTE = [
+  "#2563eb",
+  "#7c3aed",
+  "#ea580c",
+  "#0f766e",
+  "#dc2626",
+  "#0ea5e9",
+  "#16a34a",
+];
+
+function normalizeTagColor(color: string, fallbackIndex = 0) {
+  const value = color.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+    return value.toLowerCase();
+  }
+
+  return TAG_COLOR_PALETTE[fallbackIndex % TAG_COLOR_PALETTE.length];
+}
+
+function normalizeMemberTagDefinition(
+  entry: Partial<MemberTagDefinition> | string,
+  index = 0,
+): MemberTagDefinition {
   const now = new Date().toISOString();
-  database
-    .prepare(
-      `INSERT INTO config_store (key, value_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
-    )
-    .run(key, JSON.stringify(value), now);
+  const label = typeof entry === "string" ? entry : String(entry.label ?? "").trim();
+  const slug = slugify(label || (typeof entry === "string" ? entry : entry.id ?? ""));
 
-  return value;
+  return {
+    id: (typeof entry === "string" ? "" : entry.id ?? "").trim() || slug || `tag-${Date.now()}-${index}`,
+    label: label || slug.replace(/-/g, " ") || `Tag ${index + 1}`,
+    color: normalizeTagColor(typeof entry === "string" ? "" : String(entry.color ?? ""), index),
+    description: typeof entry === "string" ? "" : String(entry.description ?? "").trim(),
+    createdAt: typeof entry === "string"
+      ? now
+      : String(entry.createdAt ?? "").trim() || now,
+    updatedAt: now,
+  };
 }
 
-function getConfig<T>(key: string, fallback: T): T {
-  const row = database
-    .prepare("SELECT value_json FROM config_store WHERE key = ?")
-    .get(key) as { value_json: string } | undefined;
-
-  return row ? parseJson<T>(row.value_json, fallback) : fallback;
+function buildDefaultMemberTags(): MemberTagDefinition[] {
+  return normalizeTags(SEEDED_MEMBERS.flatMap((member) => member.tags ?? []))
+    .map((label, index) => normalizeMemberTagDefinition(label, index))
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function getOptionalConfig<T>(key: string) {
-  const row = database
-    .prepare("SELECT value_json FROM config_store WHERE key = ?")
-    .get(key) as { value_json: string } | undefined;
+function normalizeModuleRequirements(
+  requirements: Partial<AccessModuleRequirement>[] | null | undefined,
+): AccessModuleRequirement[] {
+  const now = new Date().toISOString();
+  const defaultsByPath = new Map(
+    DEFAULT_MODULE_REQUIREMENTS.map((requirement) => [requirement.path, requirement]),
+  );
+  const inputMap = new Map<string, Partial<AccessModuleRequirement>>();
+  for (const item of Array.isArray(requirements) ? requirements : []) {
+    const path = String(item.path ?? "").trim();
+    if (!path) {
+      continue;
+    }
 
-  return row ? parseJson<T | null>(row.value_json, null) : null;
+    inputMap.set(path, item);
+  }
+  const mergedInput = DEFAULT_MODULE_REQUIREMENTS.map((item) => inputMap.get(item.path) ?? item);
+  for (const [path, item] of inputMap.entries()) {
+    if (!defaultsByPath.has(path)) {
+      mergedInput.push(item);
+    }
+  }
+  const input = mergedInput.length > 0 ? mergedInput : DEFAULT_MODULE_REQUIREMENTS;
+  const normalized = input
+    .map((item) => {
+      const fallback = defaultsByPath.get(String(item.path ?? "")) ?? DEFAULT_MODULE_REQUIREMENTS[0];
+      const requiredPermissions = Array.isArray(item.requiredPermissions)
+        ? [...new Set(item.requiredPermissions)].filter(Boolean) as PermissionId[]
+        : fallback.requiredPermissions;
+
+      return {
+        path: String(item.path ?? fallback.path).trim() || fallback.path,
+        title: String(item.title ?? fallback.title).trim() || fallback.title,
+        description: String(item.description ?? fallback.description).trim() || fallback.description,
+        requiredPermissions,
+        requirementNotes: String(item.requirementNotes ?? fallback.requirementNotes ?? "").trim(),
+        updatedAt: String(item.updatedAt ?? "").trim() || now,
+      } satisfies AccessModuleRequirement;
+    })
+    .filter((item) => item.path);
+
+  const seen = new Set<string>();
+  return normalized.filter((item) => {
+    if (seen.has(item.path)) {
+      return false;
+    }
+
+    seen.add(item.path);
+    return true;
+  });
 }
 
 function hashToken(token: string) {
@@ -405,18 +609,78 @@ function verifyPassword(password: string, storedHash: string) {
 
   const candidate = scryptSync(password, salt, 64);
   const stored = Buffer.from(storedDerived, "hex");
-
   return stored.length === candidate.length && timingSafeEqual(stored, candidate);
 }
 
-function seedIfEmpty(tableName: string, action: () => void) {
-  const row = database
-    .prepare(`SELECT COUNT(*) as total FROM ${tableName}`)
-    .get() as { total: number };
+async function selectRows<T>(
+  table: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+) {
+  return supabaseRequest<T[]>(`${table}${buildQuery({ select: "*", ...params })}`);
+}
 
-  if (row.total === 0) {
-    action();
-  }
+async function selectOne<T>(
+  table: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+) {
+  const rows = await selectRows<T>(table, { ...params, limit: 1 });
+  return rows[0] ?? null;
+}
+
+async function upsertOne<T>(
+  table: string,
+  row: Record<string, unknown>,
+  conflictKey = "id",
+) {
+  const rows = await supabaseRequest<T[]>(
+    `${table}${buildQuery({ on_conflict: conflictKey })}`,
+    {
+      method: "POST",
+      body: JSON.stringify([row]),
+      prefer: ["resolution=merge-duplicates", "return=representation"],
+    },
+  );
+
+  return rows[0] ?? null;
+}
+
+async function insertOne<T>(table: string, row: Record<string, unknown>) {
+  const rows = await supabaseRequest<T[]>(table, {
+    method: "POST",
+    body: JSON.stringify([row]),
+    prefer: ["return=representation"],
+  });
+
+  return rows[0] ?? null;
+}
+
+async function patchRows<T>(
+  table: string,
+  filters: Record<string, string | number | boolean | undefined>,
+  patch: Record<string, unknown>,
+) {
+  return supabaseRequest<T[]>(`${table}${buildQuery(filters)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+    prefer: ["return=representation"],
+  });
+}
+
+async function deleteRows<T>(
+  table: string,
+  filters: Record<string, string | number | boolean | undefined>,
+) {
+  return supabaseRequest<T[]>(`${table}${buildQuery(filters)}`, {
+    method: "DELETE",
+    prefer: ["return=representation"],
+  });
+}
+
+function cloneDefaultRoles() {
+  return DEFAULT_ACCESS_ROLES.map((role) => ({
+    ...role,
+    permissions: [...role.permissions],
+  }));
 }
 
 function mapMenuRow(row: MenuRow): Menu {
@@ -424,19 +688,21 @@ function mapMenuRow(row: MenuRow): Menu {
     id: row.id,
     name: row.name,
     location: row.location,
-    items: parseJson(row.items_json, []),
+    items: readJson(row.items_json, []),
+    specials: readJson(row.specials_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function mapRewardRow(row: RewardRow): RewardProgram {
+function mapRewardProgramRow(row: RewardProgramRow): RewardProgram {
   return {
     id: row.id,
     name: row.name,
-    pointsPerDollar: row.points_per_dollar,
-    tiers: parseJson(row.tiers_json, []),
-    redemptions: parseJson(row.redemptions_json, []),
+    pointsPerDollar: toNumber(row.points_per_dollar),
+    tiers: readJson(row.tiers_json, []),
+    redemptions: readJson(row.redemptions_json, []),
+    pointGenerators: readJson(row.point_generators_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -445,13 +711,27 @@ function mapRewardRow(row: RewardRow): RewardProgram {
 function mapMemberRow(row: MemberRow): Member {
   return {
     id: row.id,
+    username: row.username,
     email: row.email,
     name: row.name,
+    status: row.status,
     phone: row.phone ?? undefined,
-    loyaltyPoints: row.loyalty_points,
+    loyaltyPoints: toNumber(row.loyalty_points),
     tier: row.tier,
     joinDate: row.join_date,
     lastVisit: row.last_visit ?? undefined,
+    favoriteLocation: row.favorite_location ?? undefined,
+    address: row.address ?? undefined,
+    dateOfBirth: row.date_of_birth ?? undefined,
+    notes: row.notes ?? undefined,
+    tags: normalizeTags(readJson(row.tags_json, [])),
+    marketingOptIn: Boolean(row.marketing_opt_in),
+    totalSpend: toNumber(row.total_spend),
+    visits: toNumber(row.visits),
+    avatar: row.avatar ?? undefined,
+    passwordSet: Boolean(row.password_hash),
+    passwordUpdatedAt: row.password_updated_at ?? undefined,
+    companionAccessCode: row.companion_access_code ?? undefined,
   };
 }
 
@@ -469,274 +749,714 @@ function mapBrandingRow(row: BrandingRow): BrandingConfig {
   };
 }
 
-function mapUserRow(row: UserRow): User {
+function decorateUser(row: UserRow, roles: AccessRole[]): User {
+  const role = roles.find((entry) => entry.id === row.role);
+
   return {
     id: row.id,
     username: row.username,
     email: row.email,
     name: row.name,
     role: row.role,
+    roleName: role?.name ?? row.role,
+    roleColor: role?.color,
+    permissions: role?.permissions ?? [],
     status: row.status,
+    phone: row.phone ?? undefined,
+    title: row.title ?? undefined,
+    department: row.department ?? undefined,
+    notes: row.notes ?? undefined,
+    avatar: row.avatar ?? undefined,
+    lastLoginAt: row.last_login_at ?? undefined,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? undefined,
   };
 }
 
-export function initializeDatabase() {
-  seedIfEmpty("menus", () => {
-    for (const menu of SEEDED_MENUS) saveMenu(menu);
-  });
-  seedIfEmpty("reward_programs", () => {
-    for (const reward of SEEDED_REWARDS) saveRewardProgram(reward);
-  });
-  seedIfEmpty("members", () => {
-    for (const member of SEEDED_MEMBERS) saveMember(member);
-  });
-  seedIfEmpty("branding_configs", () => {
-    for (const config of SEEDED_BRANDING_CONFIGS) saveBrandingConfig(config);
-  });
-  seedIfEmpty("users", () => {
-    for (const user of SEEDED_USERS) {
-      saveUser({
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        status: user.status,
-        createdAt: user.createdAt,
-      }, user.password);
-    }
+async function readOptionalConfigRaw<T>(key: string) {
+  const row = await selectOne<ConfigRow>("config_store", {
+    key: `eq.${key}`,
   });
 
-  if (!getOptionalConfig<SiteBrandConfig>("site_brand")) {
-    upsertConfig("site_brand", DEFAULT_SITE_BRAND);
+  return row ? readJson<T | null>(row.value_json, null) : null;
+}
+
+async function readConfigRaw<T>(key: string, fallback: T) {
+  const value = await readOptionalConfigRaw<T>(key);
+  return value ?? fallback;
+}
+
+async function writeConfigRaw<T>(key: string, value: T) {
+  const row = await upsertOne<ConfigRow>(
+    "config_store",
+    {
+      key,
+      value_json: value,
+      updated_at: new Date().toISOString(),
+    },
+    "key",
+  );
+
+  return row ? readJson<T>(row.value_json, value) : value;
+}
+
+async function listMenuRowsRaw() {
+  return selectRows<MenuRow>("menus", {
+    order: "updated_at.desc",
+  });
+}
+
+async function getMenuRowRaw(id: string) {
+  return selectOne<MenuRow>("menus", {
+    id: `eq.${id}`,
+  });
+}
+
+async function saveMenuRaw(menu: Menu) {
+  const now = new Date().toISOString();
+  const payload = {
+    id: menu.id,
+    name: menu.name,
+    location: menu.location,
+    items_json: menu.items ?? [],
+    specials_json: menu.specials ?? [],
+    created_at: menu.createdAt || now,
+    updated_at: menu.updatedAt || now,
+  };
+
+  const row = await upsertOne<MenuRow>("menus", payload);
+  return row ? mapMenuRow(row) : mapMenuRow(payload as MenuRow);
+}
+
+async function deleteMenuRaw(id: string) {
+  const rows = await deleteRows<MenuRow>("menus", {
+    id: `eq.${id}`,
+  });
+
+  return rows[0] ? mapMenuRow(rows[0]) : null;
+}
+
+async function listRewardProgramRowsRaw() {
+  return selectRows<RewardProgramRow>("reward_programs", {
+    order: "updated_at.desc",
+  });
+}
+
+async function getRewardProgramRowRaw(id: string) {
+  return selectOne<RewardProgramRow>("reward_programs", {
+    id: `eq.${id}`,
+  });
+}
+
+async function saveRewardProgramRaw(program: RewardProgram) {
+  const now = new Date().toISOString();
+  const payload = {
+    id: program.id,
+    name: program.name,
+    points_per_dollar: program.pointsPerDollar,
+    tiers_json: program.tiers ?? [],
+    redemptions_json: program.redemptions ?? [],
+    point_generators_json: program.pointGenerators ?? [],
+    created_at: program.createdAt || now,
+    updated_at: program.updatedAt || now,
+  };
+
+  const row = await upsertOne<RewardProgramRow>("reward_programs", payload);
+  return row ? mapRewardProgramRow(row) : mapRewardProgramRow(payload as RewardProgramRow);
+}
+
+async function deleteRewardProgramRaw(id: string) {
+  const rows = await deleteRows<RewardProgramRow>("reward_programs", {
+    id: `eq.${id}`,
+  });
+
+  return rows[0] ? mapRewardProgramRow(rows[0]) : null;
+}
+
+async function listMemberRowsRaw() {
+  return selectRows<MemberRow>("members", {
+    order: "name.asc",
+  });
+}
+
+async function getMemberRowRaw(id: string) {
+  return selectOne<MemberRow>("members", {
+    id: `eq.${id}`,
+  });
+}
+
+async function saveMemberRaw(
+  member: Omit<Member, "passwordSet"> & { passwordUpdatedAt?: string },
+  password?: string,
+) {
+  const existing = await getMemberRowRaw(member.id);
+  const allMembers = await listMemberRowsRaw();
+  const duplicateMember = allMembers.find((entry) => {
+    if (entry.id === member.id) {
+      return false;
+    }
+
+    return (
+      normalizeLogin(entry.username) === normalizeLogin(member.username) ||
+      normalizeLogin(entry.email) === normalizeLogin(member.email)
+    );
+  });
+
+  if (duplicateMember) {
+    throw new Error("Member username or email already exists.");
+  }
+
+  const now = new Date().toISOString();
+  const nextPasswordHash =
+    typeof password === "string"
+      ? hashPassword(password)
+      : (existing?.password_hash ?? null);
+
+  const payload = {
+    id: member.id,
+    username: member.username.trim(),
+    email: member.email.trim(),
+    name: member.name.trim(),
+    status: member.status,
+    phone: member.phone?.trim() || null,
+    loyalty_points: toNumber(member.loyaltyPoints),
+    tier: member.tier.trim() || "Bronze",
+    join_date: member.joinDate,
+    last_visit: member.lastVisit?.trim() || null,
+    favorite_location: member.favoriteLocation?.trim() || null,
+    address: member.address?.trim() || null,
+    date_of_birth: member.dateOfBirth?.trim() || null,
+    notes: member.notes?.trim() || null,
+    tags_json: normalizeTags(member.tags ?? []),
+    marketing_opt_in: Boolean(member.marketingOptIn),
+    total_spend: toNumber(member.totalSpend),
+    visits: toNumber(member.visits),
+    avatar: member.avatar?.trim() || null,
+    password_hash: nextPasswordHash,
+    password_updated_at:
+      typeof password === "string"
+        ? now
+        : (member.passwordUpdatedAt ?? existing?.password_updated_at ?? null),
+    companion_access_code: member.companionAccessCode?.trim() || null,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+
+  const row = await upsertOne<MemberRow>("members", payload);
+  return row ? mapMemberRow(row) : mapMemberRow(payload as MemberRow);
+}
+
+async function deleteMemberRaw(id: string) {
+  const rows = await deleteRows<MemberRow>("members", {
+    id: `eq.${id}`,
+  });
+
+  return rows[0] ? mapMemberRow(rows[0]) : null;
+}
+
+async function listBrandingRowsRaw() {
+  return selectRows<BrandingRow>("branding_configs", {
+    order: "brand_name.asc",
+  });
+}
+
+async function getBrandingRowRaw(id: string) {
+  return selectOne<BrandingRow>("branding_configs", {
+    id: `eq.${id}`,
+  });
+}
+
+async function saveBrandingRaw(config: BrandingConfig) {
+  const payload = {
+    id: config.id,
+    brand_name: config.brandName,
+    primary_color: config.primaryColor,
+    secondary_color: config.secondaryColor,
+    accent_color: config.accentColor,
+    logo: config.logo?.trim() || null,
+    favicon: config.favicon?.trim() || null,
+    custom_domain: config.customDomain?.trim() || null,
+    font_family: config.fontFamily,
+  };
+
+  const row = await upsertOne<BrandingRow>("branding_configs", payload);
+  return row ? mapBrandingRow(row) : mapBrandingRow(payload as BrandingRow);
+}
+
+async function deleteBrandingRaw(id: string) {
+  const rows = await deleteRows<BrandingRow>("branding_configs", {
+    id: `eq.${id}`,
+  });
+
+  return rows[0] ? mapBrandingRow(rows[0]) : null;
+}
+
+async function listUserRowsRaw() {
+  return selectRows<UserRow>("users", {
+    order: "created_at.asc",
+  });
+}
+
+async function getUserRowByIdRaw(id: string) {
+  return selectOne<UserRow>("users", {
+    id: `eq.${id}`,
+  });
+}
+
+async function ensureRoleExistsRaw(roleId: string) {
+  const roles = await listAccessRolesRaw();
+  if (!roles.some((role) => role.id === roleId)) {
+    throw new Error("Selected role does not exist.");
   }
 }
 
-export function listMenus() {
-  return (database
-    .prepare("SELECT * FROM menus ORDER BY updated_at DESC")
-    .all() as MenuRow[]).map(mapMenuRow);
-}
+async function saveUserRaw(user: User, password?: string) {
+  const existing = await getUserRowByIdRaw(user.id);
+  const allUsers = await listUserRowsRaw();
+  const duplicateUser = allUsers.find((entry) => {
+    if (entry.id === user.id) {
+      return false;
+    }
 
-export function getMenu(id: string) {
-  const row = database.prepare("SELECT * FROM menus WHERE id = ?").get(id) as MenuRow | undefined;
-  return row ? mapMenuRow(row) : null;
-}
-
-export function saveMenu(menu: Menu) {
-  database
-    .prepare(
-      `INSERT INTO menus (id, name, location, items_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, location = excluded.location, items_json = excluded.items_json, created_at = excluded.created_at, updated_at = excluded.updated_at`,
-    )
-    .run(menu.id, menu.name, menu.location, JSON.stringify(menu.items ?? []), menu.createdAt, menu.updatedAt);
-  return menu;
-}
-
-export function deleteMenuRecord(id: string) {
-  const existing = getMenu(id);
-  if (!existing) return null;
-  database.prepare("DELETE FROM menus WHERE id = ?").run(id);
-  return existing;
-}
-
-export function listRewardPrograms() {
-  return (database
-    .prepare("SELECT * FROM reward_programs ORDER BY updated_at DESC")
-    .all() as RewardRow[]).map(mapRewardRow);
-}
-
-export function getRewardProgram(id: string) {
-  const row = database
-    .prepare("SELECT * FROM reward_programs WHERE id = ?")
-    .get(id) as RewardRow | undefined;
-  return row ? mapRewardRow(row) : null;
-}
-
-export function saveRewardProgram(program: RewardProgram) {
-  database
-    .prepare(
-      `INSERT INTO reward_programs (id, name, points_per_dollar, tiers_json, redemptions_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, points_per_dollar = excluded.points_per_dollar, tiers_json = excluded.tiers_json, redemptions_json = excluded.redemptions_json, created_at = excluded.created_at, updated_at = excluded.updated_at`,
-    )
-    .run(
-      program.id,
-      program.name,
-      program.pointsPerDollar,
-      JSON.stringify(program.tiers ?? []),
-      JSON.stringify(program.redemptions ?? []),
-      program.createdAt,
-      program.updatedAt,
+    return (
+      normalizeLogin(entry.username) === normalizeLogin(user.username) ||
+      normalizeLogin(entry.email) === normalizeLogin(user.email)
     );
-  return program;
+  });
+
+  if (duplicateUser) {
+    throw new Error("User username or email already exists.");
+  }
+
+  await ensureRoleExistsRaw(user.role);
+
+  const now = new Date().toISOString();
+  const payload = {
+    id: user.id,
+    username: user.username.trim(),
+    email: user.email.trim(),
+    name: user.name.trim(),
+    role: user.role,
+    status: user.status,
+    phone: user.phone?.trim() || null,
+    title: user.title?.trim() || null,
+    department: user.department?.trim() || null,
+    notes: user.notes?.trim() || null,
+    avatar: user.avatar?.trim() || null,
+    password_hash:
+      typeof password === "string"
+        ? hashPassword(password)
+        : (existing?.password_hash ?? hashPassword(randomBytes(12).toString("hex"))),
+    last_login_at: user.lastLoginAt ?? existing?.last_login_at ?? null,
+    created_at: user.createdAt || existing?.created_at || now,
+    updated_at: user.updatedAt || now,
+  };
+
+  const row = await upsertOne<UserRow>("users", payload);
+  const roles = await listAccessRolesRaw();
+  return row ? decorateUser(row, roles) : decorateUser(payload as UserRow, roles);
 }
 
-export function deleteRewardProgramRecord(id: string) {
-  const existing = getRewardProgram(id);
-  if (!existing) return null;
-  database.prepare("DELETE FROM reward_programs WHERE id = ?").run(id);
-  return existing;
+async function deleteUserRaw(id: string) {
+  const roles = await listAccessRolesRaw();
+  const deletedUsers = await deleteRows<UserRow>("users", {
+    id: `eq.${id}`,
+  });
+
+  await deleteRows<SessionRow>("auth_sessions", {
+    user_id: `eq.${id}`,
+  });
+
+  return deletedUsers[0] ? decorateUser(deletedUsers[0], roles) : null;
 }
 
-export function listMembers() {
-  return (database
-    .prepare("SELECT * FROM members ORDER BY name COLLATE NOCASE ASC")
-    .all() as MemberRow[]).map(mapMemberRow);
+async function getSessionRowRaw(token: string) {
+  return selectOne<SessionRow>("auth_sessions", {
+    token_hash: `eq.${hashToken(token)}`,
+  });
 }
 
-export function getMembersPage(page: number, limit: number) {
-  const total = (database.prepare("SELECT COUNT(*) as total FROM members").get() as { total: number }).total;
-  const offset = Math.max(0, (page - 1) * limit);
-  const rows = database
-    .prepare("SELECT * FROM members ORDER BY name COLLATE NOCASE ASC LIMIT ? OFFSET ?")
-    .all(limit, offset) as MemberRow[];
-
-  return { data: rows.map(mapMemberRow), total, page, limit };
+async function deleteSessionRowsByHashRaw(tokenHash: string) {
+  await deleteRows<SessionRow>("auth_sessions", {
+    token_hash: `eq.${tokenHash}`,
+  });
 }
 
-export function getMember(id: string) {
-  const row = database.prepare("SELECT * FROM members WHERE id = ?").get(id) as MemberRow | undefined;
-  return row ? mapMemberRow(row) : null;
+async function listAccessRolesRaw() {
+  const roles = await readConfigRaw<AccessRole[]>(CONFIG_KEYS.accessRoles, []);
+
+  return [...roles].sort((left, right) => {
+    if (left.isSystem !== right.isSystem) {
+      return left.isSystem ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 }
 
-export function saveMember(member: Member) {
-  database
-    .prepare(
-      `INSERT INTO members (id, email, name, phone, loyalty_points, tier, join_date, last_visit)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, phone = excluded.phone, loyalty_points = excluded.loyalty_points, tier = excluded.tier, join_date = excluded.join_date, last_visit = excluded.last_visit`,
-    )
-    .run(
-      member.id,
-      member.email,
-      member.name,
-      member.phone ?? null,
-      member.loyaltyPoints,
-      member.tier,
-      member.joinDate,
-      member.lastVisit ?? null,
-    );
-  return member;
+async function writeAccessRolesRaw(roles: AccessRole[]) {
+  return writeConfigRaw(CONFIG_KEYS.accessRoles, roles);
 }
 
-export function deleteMemberRecord(id: string) {
-  const existing = getMember(id);
-  if (!existing) return null;
-  database.prepare("DELETE FROM members WHERE id = ?").run(id);
-  return existing;
+async function listMemberTagsRaw() {
+  const tags = await readConfigRaw<MemberTagDefinition[]>(CONFIG_KEYS.memberTags, []);
+  return tags
+    .map((tag, index) => normalizeMemberTagDefinition(tag, index))
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-export function listBrandingConfigs() {
-  return (database
-    .prepare("SELECT * FROM branding_configs ORDER BY brand_name COLLATE NOCASE ASC")
-    .all() as BrandingRow[]).map(mapBrandingRow);
+async function writeMemberTagsRaw(tags: MemberTagDefinition[]) {
+  const nextTags = tags
+    .map((tag, index) => normalizeMemberTagDefinition(tag, index))
+    .sort((left, right) => left.label.localeCompare(right.label));
+  return writeConfigRaw(CONFIG_KEYS.memberTags, nextTags);
 }
 
-export function getBrandingConfig(id: string) {
-  const row = database
-    .prepare("SELECT * FROM branding_configs WHERE id = ?")
-    .get(id) as BrandingRow | undefined;
-  return row ? mapBrandingRow(row) : null;
+async function listModuleRequirementsRaw() {
+  const requirements = await readConfigRaw<AccessModuleRequirement[]>(
+    CONFIG_KEYS.moduleRequirements,
+    DEFAULT_MODULE_REQUIREMENTS,
+  );
+  return normalizeModuleRequirements(requirements);
 }
 
-export function saveBrandingConfig(config: BrandingConfig) {
-  database
-    .prepare(
-      `INSERT INTO branding_configs (id, brand_name, primary_color, secondary_color, accent_color, logo, favicon, custom_domain, font_family)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET brand_name = excluded.brand_name, primary_color = excluded.primary_color, secondary_color = excluded.secondary_color, accent_color = excluded.accent_color, logo = excluded.logo, favicon = excluded.favicon, custom_domain = excluded.custom_domain, font_family = excluded.font_family`,
-    )
-    .run(
-      config.id,
-      config.brandName,
-      config.primaryColor,
-      config.secondaryColor,
-      config.accentColor,
-      config.logo ?? null,
-      config.favicon ?? null,
-      config.customDomain ?? null,
-      config.fontFamily,
-    );
-  return config;
+async function writeModuleRequirementsRaw(requirements: AccessModuleRequirement[]) {
+  return writeConfigRaw(CONFIG_KEYS.moduleRequirements, normalizeModuleRequirements(requirements));
 }
 
-export function deleteBrandingConfigRecord(id: string) {
-  const existing = getBrandingConfig(id);
-  if (!existing) return null;
-  database.prepare("DELETE FROM branding_configs WHERE id = ?").run(id);
-  return existing;
+async function seedDefaults() {
+  const roles = await readOptionalConfigRaw<AccessRole[]>(CONFIG_KEYS.accessRoles);
+  if (!roles || roles.length === 0) {
+    await writeAccessRolesRaw(cloneDefaultRoles());
+  }
+
+  const siteBrand = await readOptionalConfigRaw<SiteBrandConfig>(CONFIG_KEYS.siteBrand);
+  if (!siteBrand) {
+    await writeConfigRaw(CONFIG_KEYS.siteBrand, DEFAULT_SITE_BRAND);
+  }
+
+  const memberTags = await readOptionalConfigRaw<MemberTagDefinition[]>(CONFIG_KEYS.memberTags);
+  if (!memberTags || memberTags.length === 0) {
+    await writeMemberTagsRaw(buildDefaultMemberTags());
+  }
+
+  const moduleRequirements = await readOptionalConfigRaw<AccessModuleRequirement[]>(
+    CONFIG_KEYS.moduleRequirements,
+  );
+  if (!moduleRequirements || moduleRequirements.length === 0) {
+    await writeModuleRequirementsRaw(DEFAULT_MODULE_REQUIREMENTS);
+  }
+
+  if ((await listMenuRowsRaw()).length === 0) {
+    for (const menu of SEEDED_MENUS) {
+      await saveMenuRaw(menu);
+    }
+  }
+
+  if ((await listRewardProgramRowsRaw()).length === 0) {
+    for (const program of SEEDED_REWARDS) {
+      await saveRewardProgramRaw(program);
+    }
+  }
+
+  if ((await listMemberRowsRaw()).length === 0) {
+    for (const member of SEEDED_MEMBERS) {
+      const { password, passwordSet: _passwordSet, ...nextMember } = member;
+      await saveMemberRaw(nextMember, password);
+    }
+  }
+
+  if ((await listBrandingRowsRaw()).length === 0) {
+    for (const config of SEEDED_BRANDING_CONFIGS) {
+      await saveBrandingRaw(config);
+    }
+  }
+
+  if ((await listUserRowsRaw()).length === 0) {
+    for (const seededUser of SEEDED_USERS) {
+      await saveUserRaw(
+        {
+          id: seededUser.id,
+          username: seededUser.username,
+          email: seededUser.email,
+          name: seededUser.name,
+          role: seededUser.role,
+          roleName: "",
+          permissions: [],
+          status: seededUser.status,
+          phone: seededUser.phone,
+          title: seededUser.title,
+          department: seededUser.department,
+          notes: seededUser.notes,
+          avatar: seededUser.avatar,
+          lastLoginAt: seededUser.lastLoginAt,
+          createdAt: seededUser.createdAt,
+          updatedAt: seededUser.updatedAt,
+        },
+        seededUser.password,
+      );
+    }
+  }
+}
+export function initializeDatabase() {
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      assertSupabaseConfigured();
+      await seedDefaults();
+    })().catch((error) => {
+      initializationPromise = null;
+      throw error;
+    });
+  }
+
+  return initializationPromise;
 }
 
-export function listUsers() {
-  return (database
-    .prepare("SELECT * FROM users ORDER BY created_at ASC")
-    .all() as UserRow[]).map(mapUserRow);
+export async function listAccessRoles() {
+  await initializeDatabase();
+  return listAccessRolesRaw();
 }
 
-export function getUserById(id: string) {
-  const row = database.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
-  return row ? mapUserRow(row) : null;
+export async function getAccessRole(id: string) {
+  await initializeDatabase();
+  const roles = await listAccessRolesRaw();
+  return roles.find((role) => role.id === id) ?? null;
 }
 
-function getUserRowByLogin(login: string) {
-  return database
-    .prepare(
-      "SELECT * FROM users WHERE lower(username) = lower(?) OR lower(email) = lower(?)",
-    )
-    .get(login, login) as UserRow | undefined;
+export async function saveAccessRole(role: AccessRole) {
+  await initializeDatabase();
+  const roles = await listAccessRolesRaw();
+  const nextId = role.id || slugify(role.name) || `role-${Date.now()}`;
+  const nextRole: AccessRole = {
+    ...role,
+    id: nextId,
+    name: role.name.trim(),
+    description: role.description.trim(),
+    color: role.color.trim() || "#2563eb",
+    permissions: [...new Set(role.permissions)] as PermissionId[],
+    updatedAt: role.updatedAt || new Date().toISOString(),
+  };
+
+  const duplicate = roles.find((entry) => {
+    if (entry.id === nextRole.id) {
+      return false;
+    }
+
+    return slugify(entry.name) === slugify(nextRole.name);
+  });
+
+  if (duplicate) {
+    throw new Error("A role with that name already exists.");
+  }
+
+  const nextRoles = roles.some((entry) => entry.id === nextRole.id)
+    ? roles.map((entry) => (entry.id === nextRole.id ? nextRole : entry))
+    : [...roles, nextRole];
+
+  await writeAccessRolesRaw(nextRoles);
+  return nextRole;
 }
 
-export function saveUser(user: User, password?: string) {
-  const existing = database
-    .prepare("SELECT password_hash FROM users WHERE id = ?")
-    .get(user.id) as { password_hash: string } | undefined;
-  const passwordHash = password
-    ? hashPassword(password)
-    : existing?.password_hash ?? hashPassword(randomBytes(12).toString("hex"));
+export async function deleteAccessRole(id: string) {
+  await initializeDatabase();
+  const roles = await listAccessRolesRaw();
+  const target = roles.find((role) => role.id === id);
 
-  database
-    .prepare(
-      `INSERT INTO users (id, username, email, name, role, status, password_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET username = excluded.username, email = excluded.email, name = excluded.name, role = excluded.role, status = excluded.status, password_hash = excluded.password_hash, created_at = excluded.created_at`,
-    )
-    .run(
-      user.id,
-      user.username,
-      user.email,
-      user.name,
-      user.role,
-      user.status,
-      passwordHash,
-      user.createdAt,
-    );
-
-  return user;
-}
-
-export function authenticateUser(login: string, password: string) {
-  const row = getUserRowByLogin(login.trim());
-  if (!row) {
+  if (!target) {
     return null;
   }
 
-  return verifyPassword(password, row.password_hash) ? mapUserRow(row) : null;
+  if (target.isSystem) {
+    throw new Error("System roles cannot be deleted.");
+  }
+
+  const users = await listUsers();
+  if (users.some((user) => user.role === id)) {
+    throw new Error("Reassign users before deleting this role.");
+  }
+
+  const nextRoles = roles.filter((role) => role.id !== id);
+  await writeAccessRolesRaw(nextRoles);
+  return target;
 }
 
-export function createAuthSession(userId: string) {
+export async function listMenus() {
+  await initializeDatabase();
+  const rows = await listMenuRowsRaw();
+  return rows.map(mapMenuRow);
+}
+
+export async function getMenu(id: string) {
+  await initializeDatabase();
+  const row = await getMenuRowRaw(id);
+  return row ? mapMenuRow(row) : null;
+}
+
+export async function saveMenu(menu: Menu) {
+  await initializeDatabase();
+  return saveMenuRaw(menu);
+}
+
+export async function deleteMenuRecord(id: string) {
+  await initializeDatabase();
+  return deleteMenuRaw(id);
+}
+
+export async function listRewardPrograms() {
+  await initializeDatabase();
+  const rows = await listRewardProgramRowsRaw();
+  return rows.map(mapRewardProgramRow);
+}
+
+export async function getRewardProgram(id: string) {
+  await initializeDatabase();
+  const row = await getRewardProgramRowRaw(id);
+  return row ? mapRewardProgramRow(row) : null;
+}
+
+export async function saveRewardProgram(program: RewardProgram) {
+  await initializeDatabase();
+  return saveRewardProgramRaw(program);
+}
+
+export async function deleteRewardProgramRecord(id: string) {
+  await initializeDatabase();
+  return deleteRewardProgramRaw(id);
+}
+
+export async function listMembers() {
+  await initializeDatabase();
+  const rows = await listMemberRowsRaw();
+  return rows.map(mapMemberRow);
+}
+
+export async function getMembersPage(page: number, limit: number) {
+  await initializeDatabase();
+  const members = await listMembers();
+  const total = members.length;
+  const offset = Math.max(0, (page - 1) * limit);
+  return {
+    data: members.slice(offset, offset + limit),
+    total,
+    page,
+    limit,
+  };
+}
+
+export async function getMember(id: string) {
+  await initializeDatabase();
+  const row = await getMemberRowRaw(id);
+  return row ? mapMemberRow(row) : null;
+}
+
+export async function saveMember(
+  member: Omit<Member, "passwordSet"> & { passwordUpdatedAt?: string },
+  password?: string,
+) {
+  await initializeDatabase();
+  return saveMemberRaw(member, password);
+}
+
+export async function deleteMemberRecord(id: string) {
+  await initializeDatabase();
+  return deleteMemberRaw(id);
+}
+
+export async function listMemberTags() {
+  await initializeDatabase();
+  return listMemberTagsRaw();
+}
+
+export async function setMemberTags(tags: MemberTagDefinition[]) {
+  await initializeDatabase();
+  return writeMemberTagsRaw(tags);
+}
+
+export async function listBrandingConfigs() {
+  await initializeDatabase();
+  const rows = await listBrandingRowsRaw();
+  return rows.map(mapBrandingRow);
+}
+
+export async function getBrandingConfig(id: string) {
+  await initializeDatabase();
+  const row = await getBrandingRowRaw(id);
+  return row ? mapBrandingRow(row) : null;
+}
+
+export async function saveBrandingConfig(config: BrandingConfig) {
+  await initializeDatabase();
+  return saveBrandingRaw(config);
+}
+
+export async function deleteBrandingConfigRecord(id: string) {
+  await initializeDatabase();
+  return deleteBrandingRaw(id);
+}
+
+export async function listUsers() {
+  await initializeDatabase();
+  const [rows, roles] = await Promise.all([listUserRowsRaw(), listAccessRolesRaw()]);
+  return rows.map((row) => decorateUser(row, roles));
+}
+
+export async function getUserById(id: string) {
+  await initializeDatabase();
+  const [row, roles] = await Promise.all([getUserRowByIdRaw(id), listAccessRolesRaw()]);
+  return row ? decorateUser(row, roles) : null;
+}
+
+export async function saveUser(user: User, password?: string) {
+  await initializeDatabase();
+  return saveUserRaw(user, password);
+}
+
+export async function authenticateUser(login: string, password: string) {
+  await initializeDatabase();
+  const normalizedLogin = normalizeLogin(login);
+  const rows = await listUserRowsRaw();
+  const row = rows.find((entry) => {
+    return (
+      normalizeLogin(entry.username) === normalizedLogin ||
+      normalizeLogin(entry.email) === normalizedLogin
+    );
+  });
+
+  if (!row || !verifyPassword(password, row.password_hash)) {
+    return null;
+  }
+
+  const lastLoginAt = new Date().toISOString();
+  const updatedRows = await patchRows<UserRow>(
+    "users",
+    { id: `eq.${row.id}` },
+    {
+      last_login_at: lastLoginAt,
+      updated_at: lastLoginAt,
+    },
+  );
+  const nextRow = updatedRows[0] ?? { ...row, last_login_at: lastLoginAt, updated_at: lastLoginAt };
+  const roles = await listAccessRolesRaw();
+  return decorateUser(nextRow, roles);
+}
+
+export async function deleteUserRecord(id: string) {
+  await initializeDatabase();
+  return deleteUserRaw(id);
+}
+
+export async function createAuthSession(userId: string) {
+  await initializeDatabase();
   const token = randomBytes(32).toString("hex");
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
 
-  database
-    .prepare(
-      `INSERT INTO auth_sessions (token_hash, user_id, expires_at, created_at)
-       VALUES (?, ?, ?, ?)`,
-    )
-    .run(hashToken(token), userId, expiresAt, now);
+  await insertOne<SessionRow>("auth_sessions", {
+    token_hash: hashToken(token),
+    user_id: userId,
+    expires_at: expiresAt,
+    created_at: now,
+  });
 
   return {
     token,
@@ -744,56 +1464,77 @@ export function createAuthSession(userId: string) {
   };
 }
 
-export function getUserBySessionToken(token: string) {
-  const row = database
-    .prepare(
-      `SELECT u.*
-       FROM auth_sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ?`,
-    )
-    .get(hashToken(token)) as UserRow | undefined;
+export async function getUserBySessionToken(token: string) {
+  await initializeDatabase();
+  const session = await getSessionRowRaw(token);
 
-  const session = database
-    .prepare("SELECT expires_at FROM auth_sessions WHERE token_hash = ?")
-    .get(hashToken(token)) as SessionRow | undefined;
-
-  if (!row || !session) {
+  if (!session) {
     return null;
   }
 
   if (new Date(session.expires_at).getTime() <= Date.now()) {
-    database.prepare("DELETE FROM auth_sessions WHERE token_hash = ?").run(hashToken(token));
+    await deleteSessionRowsByHashRaw(session.token_hash);
     return null;
   }
 
-  return mapUserRow(row);
+  const [userRow, roles] = await Promise.all([
+    getUserRowByIdRaw(session.user_id),
+    listAccessRolesRaw(),
+  ]);
+
+  return userRow ? decorateUser(userRow, roles) : null;
 }
 
-export function deleteAuthSession(token: string) {
-  database.prepare("DELETE FROM auth_sessions WHERE token_hash = ?").run(hashToken(token));
+export async function deleteAuthSession(token: string) {
+  await initializeDatabase();
+  await deleteSessionRowsByHashRaw(hashToken(token));
 }
 
-export function getSiteBrandConfig() {
-  return getConfig("site_brand", DEFAULT_SITE_BRAND);
+export async function getPermissionsForRole(roleId: string) {
+  await initializeDatabase();
+  const role = await getAccessRole(roleId);
+  return role?.permissions ?? [];
 }
 
-export function setSiteBrandConfig(config: SiteBrandConfig) {
-  return upsertConfig("site_brand", config);
+export async function getModuleRequirementsConfig() {
+  await initializeDatabase();
+  return listModuleRequirementsRaw();
 }
 
-export function getBuilderAppsConfig() {
-  return getOptionalConfig<BuilderPersistedApp[]>("builder_apps");
+export async function setModuleRequirementsConfig(requirements: AccessModuleRequirement[]) {
+  await initializeDatabase();
+  return writeModuleRequirementsRaw(requirements);
 }
 
-export function setBuilderAppsConfig(apps: BuilderPersistedApp[]) {
-  return upsertConfig("builder_apps", apps);
+export async function getSiteBrandConfig() {
+  await initializeDatabase();
+  return readConfigRaw(CONFIG_KEYS.siteBrand, DEFAULT_SITE_BRAND);
 }
 
-export function getDashboardPreferences(userKey: string) {
-  return getOptionalConfig<DashboardPreferencesConfig>(`dashboard:${userKey}`);
+export async function setSiteBrandConfig(config: SiteBrandConfig) {
+  await initializeDatabase();
+  return writeConfigRaw(CONFIG_KEYS.siteBrand, config);
 }
 
-export function setDashboardPreferences(userKey: string, config: DashboardPreferencesConfig) {
-  return upsertConfig(`dashboard:${userKey}`, config);
+export async function getBuilderAppsConfig() {
+  await initializeDatabase();
+  return readOptionalConfigRaw<BuilderPersistedApp[]>(CONFIG_KEYS.builderApps);
+}
+
+export async function setBuilderAppsConfig(apps: BuilderPersistedApp[]) {
+  await initializeDatabase();
+  return writeConfigRaw(CONFIG_KEYS.builderApps, apps);
+}
+
+export async function getDashboardPreferences(userKey: string) {
+  await initializeDatabase();
+  return readOptionalConfigRaw<DashboardPreferencesConfig>(`dashboard:${userKey}`);
+}
+
+export async function setDashboardPreferences(
+  userKey: string,
+  config: DashboardPreferencesConfig,
+) {
+  await initializeDatabase();
+  return writeConfigRaw(`dashboard:${userKey}`, config);
 }

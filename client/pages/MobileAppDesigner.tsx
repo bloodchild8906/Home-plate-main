@@ -93,8 +93,15 @@ import {
   UserRound,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MauiExportProgressDialog } from "@/components/maui-export-progress-dialog";
 import {
   AssetField,
   ColorField,
@@ -1054,6 +1061,80 @@ export default function MobileAppDesigner() {
   const [previewModalSize, setPreviewModalSize] = useState({ width: 0, height: 0 });
   const previewViewportRef = useRef<HTMLElement | null>(null);
   const previewModalViewportRef = useRef<HTMLDivElement | null>(null);
+  const mauiExportProgressTimerRef = useRef<number | null>(null);
+  const [mauiExportState, setMauiExportState] = useState<{
+    open: boolean;
+    progress: number;
+    message: string;
+    status: "idle" | "running" | "complete" | "error";
+  }>({
+    open: false,
+    progress: 0,
+    message: "",
+    status: "idle",
+  });
+
+  useEffect(() => {
+    return () => {
+      if (mauiExportProgressTimerRef.current) {
+        window.clearInterval(mauiExportProgressTimerRef.current);
+      }
+    };
+  }, []);
+
+  const startMauiExportProgress = () => {
+    if (mauiExportProgressTimerRef.current) {
+      window.clearInterval(mauiExportProgressTimerRef.current);
+    }
+
+    setMauiExportState({
+      open: true,
+      progress: 8,
+      message: "Preparing MAUI project scaffold...",
+      status: "running",
+    });
+
+    mauiExportProgressTimerRef.current = window.setInterval(() => {
+      setMauiExportState((current) => {
+        if (!current.open || current.status !== "running") {
+          return current;
+        }
+
+        const step = current.progress < 45 ? 9 : current.progress < 76 ? 5 : 2;
+        const progress = Math.min(92, current.progress + step);
+        const message =
+          progress < 36
+            ? "Preparing MAUI project scaffold..."
+            : progress < 70
+              ? "Exporting pages, assets, and scripts..."
+              : "Finalizing project files...";
+
+        return { ...current, progress, message };
+      });
+    }, 260);
+  };
+
+  const completeMauiExportProgress = (message: string, status: "complete" | "error") => {
+    if (mauiExportProgressTimerRef.current) {
+      window.clearInterval(mauiExportProgressTimerRef.current);
+      mauiExportProgressTimerRef.current = null;
+    }
+
+    setMauiExportState((current) => ({
+      ...current,
+      progress: status === "complete" ? 100 : current.progress,
+      message,
+      status,
+    }));
+
+    window.setTimeout(() => {
+      setMauiExportState((current) => ({
+        ...current,
+        open: false,
+        status: "idle",
+      }));
+    }, status === "complete" ? 900 : 500);
+  };
 
   useEffect(() => {
     const node = previewViewportRef.current;
@@ -1353,6 +1434,13 @@ export default function MobileAppDesigner() {
             ? "Linked API data loaded for preview."
             : "Choose an API function to bind this block."
       : "";
+  const selectedTapApiFunction =
+    block?.events.tap.functionId
+      ? app.apiFunctions.find((fn) => fn.id === block.events.tap.functionId) ?? null
+      : null;
+  const selectedTapApiEndpointId = selectedTapApiFunction
+    ? findServerApiEndpoint(selectedTapApiFunction, serverApiEndpoints)?.id ?? ""
+    : "";
   const filteredHtmlTags = useMemo(() => {
     const query = toolboxQuery.trim().toLowerCase();
     if (!query) {
@@ -1405,9 +1493,33 @@ export default function MobileAppDesigner() {
   const updateSelectedBlockDataBinding = (
     updater: (binding: BuilderBlockDataBinding) => BuilderBlockDataBinding,
   ) => {
+    if (!block) {
+      return;
+    }
+
+    const nextBinding = updater(block.dataBinding);
+    if (nextBinding.sourceType !== "api") {
+      updateSelectedBlock((item) => ({
+        ...item,
+        dataBinding: nextBinding,
+      }));
+      return;
+    }
+
+    let nextFunctionId = nextBinding.functionId.trim();
+    if (!nextFunctionId || !app.apiFunctions.some((fn) => fn.id === nextFunctionId)) {
+      const defaultReadEndpoint = serverApiEndpoints.find((entry) => entry.method === "GET");
+      if (defaultReadEndpoint) {
+        nextFunctionId = ensureApiFunctionForEndpoint(defaultReadEndpoint.id);
+      }
+    }
+
     updateSelectedBlock((item) => ({
       ...item,
-      dataBinding: updater(item.dataBinding),
+      dataBinding: {
+        ...nextBinding,
+        functionId: nextFunctionId,
+      },
     }));
   };
 
@@ -1581,6 +1693,60 @@ export default function MobileAppDesigner() {
     }
   };
 
+  const ensureApiFunctionForEndpoint = (endpointId: string) => {
+    const endpoint = serverApiEndpoints.find((entry) => entry.id === endpointId);
+    if (!endpoint) {
+      return "";
+    }
+
+    let resolvedFunctionId = "";
+    let addedAuthBlock = false;
+    let createdFunction = false;
+    updateCurrentApp((current) => {
+      const existing = current.apiFunctions.find(
+        (apiFunction) =>
+          apiFunction.endpointId === endpoint.id ||
+          (apiFunction.endpoint === endpoint.path && apiFunction.method === endpoint.method),
+      );
+      if (existing) {
+        resolvedFunctionId = existing.id;
+        return current;
+      }
+
+      const nextFunction = createApiFunction(current.apiFunctions.length, {
+        name: endpoint.name,
+        endpointId: endpoint.id,
+        endpoint: endpoint.path,
+        method: endpoint.method,
+        requiresAuth: endpoint.requiresAuth,
+        successMessage: endpoint.successMessage ?? "",
+      });
+      const withNewFunction = {
+        ...current,
+        apiFunctions: [...current.apiFunctions, nextFunction],
+      };
+      const result = applyServerEndpointToFunction(
+        withNewFunction,
+        nextFunction.id,
+        endpoint,
+      );
+      createdFunction = true;
+      resolvedFunctionId = nextFunction.id;
+      addedAuthBlock = result.addedAuthBlock;
+      return result.app;
+    });
+
+    if (addedAuthBlock) {
+      toast.success("Auth block added for the protected API endpoint");
+    }
+
+    if (createdFunction) {
+      toast.success(`Added API function for ${endpoint.name}`);
+    }
+
+    return resolvedFunctionId;
+  };
+
   const addApiFunction = () => {
     const next = createApiFunction(app.apiFunctions.length);
     updateCurrentApp((current) => {
@@ -1610,16 +1776,28 @@ export default function MobileAppDesigner() {
       pages: current.pages.map((pageData) => ({
         ...pageData,
         blocks: pageData.blocks.map((pageBlock) =>
-          pageBlock.events.tap.functionId === functionId
+          pageBlock.events.tap.functionId === functionId ||
+          pageBlock.dataBinding.functionId === functionId
             ? {
-                ...pageBlock,
-                events: {
-                  tap: {
-                    ...pageBlock.events.tap,
+              ...pageBlock,
+              events:
+                pageBlock.events.tap.functionId === functionId
+                  ? {
+                    tap: {
+                      ...pageBlock.events.tap,
+                      functionId: "",
+                    },
+                  }
+                  : pageBlock.events,
+              dataBinding:
+                pageBlock.dataBinding.functionId === functionId
+                  ? {
+                    ...pageBlock.dataBinding,
+                    sourceType: "none",
                     functionId: "",
-                  },
-                },
-              }
+                  }
+                  : pageBlock.dataBinding,
+            }
             : pageBlock,
         ),
       })),
@@ -1794,14 +1972,17 @@ export default function MobileAppDesigner() {
         <>
           <Button variant="outline" onClick={() => navigate("/builder")}>Back to apps</Button>
           <Button
-            disabled={STATIC_RUNTIME}
+            disabled={STATIC_RUNTIME || mauiExportState.status === "running"}
             onClick={async () => {
+              startMauiExportProgress();
               try {
                 const data = await exportMauiHybridProject(app);
+                completeMauiExportProgress("MAUI export complete.", "complete");
                 toast.success(
                   `.NET MAUI Blazor Hybrid project created at ${data.outputPath}`,
                 );
               } catch (error) {
+                completeMauiExportProgress("Export failed.", "error");
                 toast.error(
                   error instanceof Error
                     ? error.message
@@ -1813,7 +1994,9 @@ export default function MobileAppDesigner() {
             <Download className="mr-2 h-4 w-4" />
             {STATIC_RUNTIME
               ? "MAUI export requires server mode"
-              : "Build .NET MAUI Blazor Hybrid app"}
+              : mauiExportState.status === "running"
+                ? "Building..."
+                : "Build .NET MAUI Blazor Hybrid app"}
           </Button>
           <Button variant="outline" onClick={() => setPreview(true)}>
             <Eye className="mr-2 h-4 w-4" />
@@ -2813,7 +2996,24 @@ export default function MobileAppDesigner() {
         {block ? (
           <div className="space-y-5">
             <Panel eyebrow="Properties" title={block.name || "Selected Block"}>
-              <div className="space-y-3">
+              <Tabs key={block.id} defaultValue="content" className="space-y-3">
+                <TabsList className="grid h-8 w-full grid-cols-4">
+                  <TabsTrigger value="content" className="text-xs">Content</TabsTrigger>
+                  <TabsTrigger value="data" className="text-xs">Data</TabsTrigger>
+                  <TabsTrigger value="behavior" className="text-xs">Behavior</TabsTrigger>
+                  <TabsTrigger value="layout" className="text-xs">Layout</TabsTrigger>
+                </TabsList>
+                <TabsContent value="content" className="mt-0">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["content"]}
+                    className="rounded border border-border/70 bg-muted/10"
+                  >
+                    <AccordionItem value="content" className="border-border/70">
+                      <AccordionTrigger className="px-3 py-2 text-xs font-semibold hover:no-underline">
+                        Content
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-3 px-3 pb-3 pt-1">
                 <Field label={block.type === "html" ? "Content" : "Text"}>
                   <Input value={block.text ?? ""} onChange={(event) => updateSelectedBlock((item) => ({ ...item, text: event.target.value }))} />
                 </Field>
@@ -2877,36 +3077,88 @@ export default function MobileAppDesigner() {
                     <Input type="number" min="1" value={block.points ?? 0} onChange={(event) => updateSelectedBlock((item) => ({ ...item, points: Number(event.target.value) }))} />
                   </Field>
                 ) : null}
-                <BlockDataBindingFields
-                  block={block}
-                  apiFunctions={app.apiFunctions}
-                  serverApiEndpoints={serverApiEndpoints}
-                  status={selectedBlockBindingState?.status}
-                  statusMessage={selectedBlockBindingMessage}
-                  onChange={updateSelectedBlockDataBinding}
-                />
-                <div className={PANEL_SECTION_CLASSNAME}>
-                  <div className={PANEL_SECTION_HEADER_CLASSNAME}>Interactions</div>
-                  <div className={PANEL_SECTION_BODY_CLASSNAME}>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+
+                <TabsContent value="data" className="mt-0">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["binding"]}
+                    className="rounded border border-border/70 bg-muted/10"
+                  >
+                    <AccordionItem value="binding" className="border-border/70">
+                      <AccordionTrigger className="px-3 py-2 text-xs font-semibold hover:no-underline">
+                        Data binding
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3 pb-3 pt-1">
+                        <BlockDataBindingFields
+                          block={block}
+                          apiFunctions={app.apiFunctions}
+                          serverApiEndpoints={serverApiEndpoints}
+                          status={selectedBlockBindingState?.status}
+                          statusMessage={selectedBlockBindingMessage}
+                          onUseEndpoint={ensureApiFunctionForEndpoint}
+                          onChange={updateSelectedBlockDataBinding}
+                        />
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+
+                <TabsContent value="behavior" className="mt-0">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["interactions"]}
+                    className="rounded border border-border/70 bg-muted/10"
+                  >
+                    <AccordionItem value="interactions" className="border-border/70">
+                      <AccordionTrigger className="px-3 py-2 text-xs font-semibold hover:no-underline">
+                        Interactions
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3 pb-3 pt-1">
+                        <div className={PANEL_SECTION_CLASSNAME}>
+                          <div className={PANEL_SECTION_BODY_CLASSNAME}>
                     <Field label="On tap">
                       <select
                         value={block.events.tap.kind}
-                        onChange={(event) => updateSelectedBlock((item) => {
+                        onChange={(event) => {
                           const nextKind = event.target.value as BuilderBlockActionKind;
-                          return {
+                          if (nextKind === "api") {
+                            let nextFunctionId = block.events.tap.functionId;
+                            if (!nextFunctionId || !app.apiFunctions.some((fn) => fn.id === nextFunctionId)) {
+                              const defaultEndpoint = serverApiEndpoints[0];
+                              if (defaultEndpoint) {
+                                nextFunctionId = ensureApiFunctionForEndpoint(defaultEndpoint.id);
+                              } else {
+                                nextFunctionId = app.apiFunctions[0]?.id || "";
+                              }
+                            }
+
+                            updateSelectedBlock((item) => ({
+                              ...item,
+                              events: {
+                                tap: {
+                                  ...item.events.tap,
+                                  kind: nextKind,
+                                  functionId: nextFunctionId,
+                                },
+                              },
+                            }));
+                            return;
+                          }
+
+                          updateSelectedBlock((item) => ({
                             ...item,
                             events: {
                               tap: {
                                 ...item.events.tap,
                                 kind: nextKind,
-                                functionId:
-                                  nextKind === "api"
-                                    ? item.events.tap.functionId || app.apiFunctions[0]?.id || ""
-                                    : item.events.tap.functionId,
                               },
                             },
-                          };
-                        })}
+                          }));
+                        }}
                         className={PANEL_NATIVE_CONTROL_CLASSNAME}
                       >
                         <option value="none">No action</option>
@@ -2957,6 +3209,40 @@ export default function MobileAppDesigner() {
                     ) : null}
                     {block.events.tap.kind === "api" ? (
                       <>
+                        <Field label="API endpoint">
+                          <select
+                            value={selectedTapApiEndpointId}
+                            onChange={(event) => {
+                              const endpointId = event.target.value;
+                              if (!endpointId) {
+                                return;
+                              }
+
+                              const functionId = ensureApiFunctionForEndpoint(endpointId);
+                              if (!functionId) {
+                                return;
+                              }
+
+                              updateSelectedBlock((item) => ({
+                                ...item,
+                                events: {
+                                  tap: {
+                                    ...item.events.tap,
+                                    functionId,
+                                  },
+                                },
+                              }));
+                            }}
+                            className={PANEL_NATIVE_CONTROL_CLASSNAME}
+                          >
+                            <option value="">Select an endpoint</option>
+                            {serverApiEndpoints.map((endpoint) => (
+                              <option key={endpoint.id} value={endpoint.id}>
+                                {endpoint.name} ({endpoint.method} {endpoint.path})
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
                         <Field label="API function">
                           <select
                             value={block.events.tap.functionId}
@@ -3006,7 +3292,23 @@ export default function MobileAppDesigner() {
                     </p>
                   </div>
                 </div>
-                <div className={PANEL_SECTION_CLASSNAME}>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+
+                <TabsContent value="layout" className="mt-0">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["style", "spacing"]}
+                    className="rounded border border-border/70 bg-muted/10"
+                  >
+                    <AccordionItem value="style" className="border-border/70">
+                      <AccordionTrigger className="px-3 py-2 text-xs font-semibold hover:no-underline">
+                        HTML and style
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3 pb-3 pt-1">
+                        <div className={PANEL_SECTION_CLASSNAME}>
                   <div className={PANEL_SECTION_HEADER_CLASSNAME}>HTML and style</div>
                   <div className={PANEL_SECTION_BODY_CLASSNAME}>
                     <Field label="Element ID">
@@ -3033,9 +3335,16 @@ export default function MobileAppDesigner() {
                     </Field>
                   </div>
                 </div>
-                <div className={PANEL_SECTION_CLASSNAME}>
+                      </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="spacing" className="border-border/70">
+                      <AccordionTrigger className="px-3 py-2 text-xs font-semibold hover:no-underline">
+                        Layout and spacing
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3 pb-3 pt-1">
+                        <div className={PANEL_SECTION_CLASSNAME}>
                   <div className={PANEL_SECTION_HEADER_CLASSNAME}>Layout and spacing</div>
-                  <div className="grid gap-3 p-3 sm:grid-cols-2">
+                  <div className="grid gap-3 p-3">
                     <Field label="Display">
                       <select
                         value={block.layout.display}
@@ -3100,7 +3409,7 @@ export default function MobileAppDesigner() {
                       Block keeps the default component layout. Flex and Grid let you reflow the block content, repeated items, and shell alignment directly in the preview.
                     </div>
                   </div>
-                  <div className="grid gap-3 px-3 pb-3 sm:grid-cols-2">
+                  <div className="grid gap-3 px-3 pb-3">
                     <SpacingGroup
                       label="Margin"
                       layout={block.layout}
@@ -3130,7 +3439,12 @@ export default function MobileAppDesigner() {
                     </Field>
                   </div>
                 </div>
-              </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+              </Tabs>
+
             </Panel>
           </div>
         ) : (
@@ -3195,6 +3509,22 @@ export default function MobileAppDesigner() {
           </div>
         </DialogContent>
       </Dialog>
+      <MauiExportProgressDialog
+        open={mauiExportState.open}
+        appName={app.name}
+        progress={mauiExportState.progress}
+        message={mauiExportState.message}
+        status={mauiExportState.status === "complete" ? "complete" : mauiExportState.status === "error" ? "error" : "running"}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && mauiExportState.status !== "running") {
+            setMauiExportState((current) => ({
+              ...current,
+              open: false,
+              status: "idle",
+            }));
+          }
+        }}
+      />
     </AppShell>
   );
 }

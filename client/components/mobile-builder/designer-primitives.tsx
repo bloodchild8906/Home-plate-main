@@ -52,8 +52,8 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start">
-      <Label className="pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+    <div className="grid gap-2">
+      <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </Label>
       <div className="min-w-0 space-y-2 [&_button]:rounded-none [&_input]:rounded-none [&_select]:rounded-none [&_textarea]:rounded-none">
@@ -73,7 +73,7 @@ export function ColorField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
+    <div className="grid gap-2">
       <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </Label>
@@ -106,8 +106,8 @@ export function AssetField({
   onClear?: () => void;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start">
-      <Label className="pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+    <div className="grid gap-2">
+      <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </Label>
       <div className="flex items-center gap-3 border border-border/70 bg-muted/10 p-2">

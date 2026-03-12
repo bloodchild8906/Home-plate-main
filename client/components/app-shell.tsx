@@ -1,14 +1,27 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useEffect, useMemo, useState, type PropsWithChildren, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowRight, Lock, LogOut, Menu, ShieldCheck } from "lucide-react";
-import { APP_ROUTES, ROLE_LABELS } from "@/lib/navigation";
+import {
+  ArrowRight,
+  Lock,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
+import { APP_ROUTES } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { useBranding } from "@/lib/branding";
 import { HelpWidget } from "@/components/help-widget";
 import { BrandMark } from "@/components/brand-mark";
+import { describePermissions, getUserRoleLabel } from "@/lib/access-control";
+
+const NAV_CATEGORY_ORDER = ["Design", "Operations", "Growth", "Admin"] as const;
 
 export function AppShell({
   title,
@@ -29,13 +42,37 @@ export function AppShell({
   const location = useLocation();
   const { user, signOut, hasAccess } = useAuth();
   const { brand } = useBranding();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const accessibleRoutes = APP_ROUTES.filter((route) => hasAccess(route.requiredPermissions));
+  const groupedRoutes = useMemo(
+    () =>
+      NAV_CATEGORY_ORDER.map((category) => ({
+        category,
+        routes: APP_ROUTES.filter((route) => route.category === category),
+      })).filter((group) => group.routes.length > 0),
+    [],
+  );
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("homeplate:sidebar-collapsed");
+    if (stored === "1") {
+      setSidebarCollapsed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("homeplate:sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--accent)/0.24),transparent_32%),radial-gradient(circle_at_top_right,hsl(var(--primary)/0.16),transparent_28%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.45))]">
-      <div className={cn("mx-auto flex min-h-screen", hideSidebar ? "max-w-none" : "max-w-[1600px]")}>
+    <div className="min-h-screen w-screen max-w-[100vw] overflow-x-hidden bg-[radial-gradient(circle_at_top_left,hsl(var(--accent)/0.24),transparent_32%),radial-gradient(circle_at_top_right,hsl(var(--primary)/0.16),transparent_28%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.45))]">
+      <div className="flex min-h-screen w-full max-w-[100vw] overflow-x-hidden">
         {hideSidebar ? null : (
           <aside
-            className="hidden w-80 shrink-0 border-r border-white/10 px-6 py-8 lg:flex lg:flex-col"
+            className={cn(
+              "hidden h-screen max-h-screen shrink-0 overflow-hidden border-r border-white/10 transition-[width,padding] duration-300 lg:flex lg:flex-col",
+              sidebarCollapsed ? "w-[104px] px-3 py-5" : "w-72 px-5 py-6",
+            )}
             style={{
               background: `linear-gradient(180deg, ${brand.secondary}, ${brand.secondary} 55%, #020617)`,
               color: "var(--brand-panel-foreground)",
@@ -43,7 +80,11 @@ export function AppShell({
           >
             <Link
               to="/"
-              className="rounded-3xl border border-white/10 p-5"
+              title={`${brand.name} Control`}
+              className={cn(
+                "rounded-3xl border border-white/10",
+                sidebarCollapsed ? "flex justify-center p-3" : "p-4",
+              )}
               style={{ backgroundColor: `${brand.secondary}cc` }}
             >
               <BrandMark
@@ -52,153 +93,273 @@ export function AppShell({
                 label={`${brand.name} logo`}
                 primary={brand.primary}
                 accent={brand.accent}
-                className="mb-4 h-12 w-12"
+                className={cn("h-10 w-10", sidebarCollapsed ? "" : "mb-3")}
               />
-              <div className="text-lg font-black tracking-tight">{brand.name} Control</div>
-              <p className="mt-1 text-sm" style={{ color: "var(--brand-panel-muted)" }}>{brand.tagline}</p>
+              {sidebarCollapsed ? null : (
+                <>
+                  <div className="text-sm font-black tracking-tight">{brand.name} Control</div>
+                  <p className="mt-1 text-[11px]" style={{ color: "var(--brand-panel-muted)" }}>{brand.tagline}</p>
+                </>
+              )}
             </Link>
 
-            <div className="mt-8 space-y-2">
-              {APP_ROUTES.map((route) => {
-                const Icon = route.icon;
-                const canAccess = hasAccess(route.allowedRoles);
-                const isActive = location.pathname === route.path;
-
-                return canAccess ? (
-                  <Link
-                    key={route.path}
-                    to={route.path}
-                    className={cn(
-                      "group flex items-center gap-4 rounded-2xl border px-4 py-4 transition-all",
-                      isActive
-                        ? "border-white/20 bg-white text-slate-950 shadow-xl"
-                        : "border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10",
+            <div className="mt-4 flex justify-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+                    onClick={() => setSidebarCollapsed((current) => !current)}
+                  >
+                    {sidebarCollapsed ? (
+                      <PanelLeftOpen className="h-3.5 w-3.5" />
+                    ) : (
+                      <PanelLeftClose className="h-3.5 w-3.5" />
                     )}
-                  >
-                    <div
-                      className={cn(
-                        "flex h-11 w-11 items-center justify-center rounded-2xl",
-                        isActive ? "bg-slate-950 text-white" : "bg-white/10 text-white",
-                      )}
-                    >
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold">{route.title}</span>
-                        <ArrowRight className={cn("h-4 w-4 transition-transform", isActive ? "" : "group-hover:translate-x-0.5")} />
-                      </div>
-                      <p
-                        className="mt-1 text-xs"
-                        style={{
-                          color: isActive ? "hsl(var(--foreground))" : "var(--brand-panel-muted)",
-                        }}
-                      >
-                        {route.shortDescription}
-                      </p>
-                    </div>
-                  </Link>
-                ) : (
-                  <div
-                    key={route.path}
-                    className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-4 text-slate-500"
-                  >
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5">
-                      <Lock className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold">{route.title}</div>
-                      <p className="mt-1 text-xs">Restricted to {route.allowedRoles.join(", ")}</p>
-                    </div>
-                  </div>
-                );
-              })}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                </TooltipContent>
+              </Tooltip>
             </div>
 
-            <div className="mt-auto rounded-3xl border border-white/10 bg-white/5 p-5">
-              <div className="mb-3 flex items-center gap-3">
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                  style={{ backgroundColor: `${brand.accent}22`, color: brand.accent }}
-                >
-                  <ShieldCheck className="h-5 w-5" />
+            <div className="mt-6 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+              {groupedRoutes.map((group) => (
+                <section key={group.category} className="space-y-1.5">
+                  <div
+                    className={cn(
+                      "font-black uppercase",
+                      sidebarCollapsed
+                        ? "text-center text-[8px] tracking-[0.14em]"
+                        : "px-1 text-[9px] tracking-[0.2em]",
+                    )}
+                    style={{ color: "var(--brand-panel-muted)" }}
+                  >
+                    {sidebarCollapsed ? group.category.slice(0, 3) : group.category}
+                  </div>
+                  <div className="space-y-1.5">
+                    {group.routes.map((route) => {
+                      const Icon = route.icon;
+                      const canAccess = hasAccess(route.requiredPermissions);
+                      const isActive = location.pathname === route.path;
+
+                      return canAccess ? (
+                        <Link
+                          key={route.path}
+                          to={route.path}
+                          title={route.title}
+                          className={cn(
+                            "group flex rounded-2xl border transition-all",
+                            sidebarCollapsed
+                              ? "flex-col items-center justify-center px-1.5 py-2 text-center"
+                              : "items-center gap-3 px-3 py-3",
+                            isActive
+                              ? "border-white/20 bg-white text-slate-950 shadow-xl"
+                              : "border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-xl",
+                              isActive ? "bg-slate-950 text-white" : "bg-white/10 text-white",
+                            )}
+                          >
+                            <Icon className="h-3 w-3" />
+                          </div>
+                          {sidebarCollapsed ? (
+                            <div
+                              className="mt-1 max-w-full text-[9px] font-semibold leading-3"
+                              style={{ color: isActive ? "hsl(var(--foreground))" : "white" }}
+                            >
+                              {route.title}
+                            </div>
+                          ) : (
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold">{route.title}</span>
+                                <ArrowRight
+                                  className={cn(
+                                    "h-2.5 w-2.5 transition-transform",
+                                    isActive ? "" : "group-hover:translate-x-0.5",
+                                  )}
+                                />
+                              </div>
+                              <p
+                                className="mt-1 text-[10px]"
+                                style={{
+                                  color: isActive
+                                    ? "hsl(var(--foreground))"
+                                    : "var(--brand-panel-muted)",
+                                }}
+                              >
+                                {route.shortDescription}
+                              </p>
+                            </div>
+                          )}
+                        </Link>
+                      ) : (
+                        <div
+                          key={route.path}
+                          title={route.title}
+                          className={cn(
+                            "flex rounded-2xl border border-white/5 bg-white/[0.03] text-slate-500",
+                            sidebarCollapsed
+                              ? "flex-col items-center justify-center px-1.5 py-2 text-center"
+                              : "items-center gap-3 px-3 py-3",
+                          )}
+                        >
+                          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/5">
+                            <Lock className="h-3 w-3" />
+                          </div>
+                          {sidebarCollapsed ? (
+                            <div className="mt-1 max-w-full text-[9px] font-semibold leading-3">
+                              {route.title}
+                            </div>
+                          ) : (
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-semibold">{route.title}</div>
+                              <p className="mt-1 text-[10px]">
+                                Requires {describePermissions(route.requiredPermissions)}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <div
+              className={cn(
+                "mt-auto sticky bottom-3 z-20 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-sm",
+                sidebarCollapsed ? "p-2.5" : "p-4",
+              )}
+            >
+              {sidebarCollapsed ? (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/10 text-white">
+                    <UserRound className="h-3.5 w-3.5" />
+                  </div>
+                  {user ? (
+                    <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                      {getUserRoleLabel(user)}
+                    </Badge>
+                  ) : null}
                 </div>
-                <div>
-                  <div className="text-sm font-bold">{user?.name}</div>
-                  <div className="text-xs" style={{ color: "var(--brand-panel-muted)" }}>{user?.email}</div>
-                </div>
-              </div>
-              <div className="mb-4 flex items-center justify-between rounded-2xl bg-black/20 px-3 py-2 text-xs">
-                <span style={{ color: "var(--brand-panel-muted)" }}>Signed in as</span>
-                <span className="font-bold">{user ? ROLE_LABELS[user.role] : "Unknown"}</span>
-              </div>
-              <Button variant="secondary" className="w-full justify-center rounded-2xl" onClick={signOut}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </Button>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/10 text-white">
+                      <UserRound className="h-3.5 w-3.5" />
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold">{user?.name}</div>
+                      <div className="text-[10px]" style={{ color: "var(--brand-panel-muted)" }}>{user?.email}</div>
+                    </div>
+                  </div>
+                  <div className="mb-2 flex items-center justify-between rounded-2xl bg-black/20 px-2.5 py-1.5 text-[11px]">
+                    <span style={{ color: "var(--brand-panel-muted)" }}>Signed in as</span>
+                    <span className="font-bold">{user ? getUserRoleLabel(user) : "Unknown"}</span>
+                  </div>
+                </>
+              )}
             </div>
           </aside>
         )}
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <header className="border-b border-border/70 bg-background/80 backdrop-blur-xl">
-            <div className={cn("mx-auto px-4 py-5 sm:px-6", fluid ? "max-w-none" : "max-w-7xl")}>
-              <div className="mb-4 flex items-center justify-between gap-4 lg:hidden">
-                <Link to="/" className="flex items-center gap-3">
-                  <BrandMark
-                    image={brand.logoImage}
-                    text={brand.logo}
-                    label={`${brand.name} logo`}
-                    primary={brand.primary}
-                    accent={brand.accent}
-                    className="h-11 w-11"
-                  />
-                  <div>
-                    <div className="text-sm font-black">{brand.name}</div>
-                    <div className="text-xs text-muted-foreground">Workspace</div>
-                  </div>
-                </Link>
-                {hideSidebar ? null : (
-                  <Button variant="outline" asChild>
-                    <Link to="/">
-                      <Menu className="mr-2 h-4 w-4" />
-                      Modules
-                    </Link>
-                  </Button>
-                )}
-              </div>
-
-              {hidePageIntro ? (
-                actions ? <div className="flex flex-wrap justify-end gap-3">{actions}</div> : null
-              ) : (
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap gap-2">
-                      {user && <Badge className="rounded-full px-3 py-1">{ROLE_LABELS[user.role]}</Badge>}
-                      <Badge variant="outline" className="rounded-full px-3 py-1">
-                        Secured workspace
-                      </Badge>
-                    </div>
-                    <div>
-                      {title ? (
-                        <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">
-                          {title}
-                        </h1>
-                      ) : null}
-                      {description ? (
-                        <p className="mt-2 max-w-3xl text-sm text-muted-foreground sm:text-base">
-                          {description}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
+          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
+            <div className={cn("w-full min-w-0 px-3 py-3 sm:px-4", fluid ? "max-w-none" : "max-w-full")}>
+              <div className="flex min-w-0 items-center justify-between gap-2 rounded-2xl border border-border/60 bg-card/70 px-3 py-2 shadow-sm">
+                <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                  <span className="truncate">{brand.name} workspace</span>
+                  <span className="text-border">/</span>
+                  <span className="truncate">{accessibleRoutes.length} modules</span>
+                  {title ? (
+                    <>
+                      <span className="text-border">/</span>
+                      <span className="truncate">{title}</span>
+                    </>
+                  ) : null}
                 </div>
-              )}
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {actions ? (
+                    <div className="hidden min-w-0 items-center gap-1.5 sm:flex [&_button]:h-8 [&_button]:px-3 [&_button]:text-xs [&_a]:h-8 [&_a]:px-3 [&_a]:text-xs [&_svg]:h-3.5 [&_svg]:w-3.5">
+                      {actions}
+                    </div>
+                  ) : null}
+                  {user ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge className="cursor-default rounded-full px-2.5 py-0.5 text-[11px]">
+                          {getUserRoleLabel(user)}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>{user.name}</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="cursor-default rounded-full px-2.5 py-0.5 text-[11px]">
+                        Permission-aware
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>Routes and actions are filtered by role permissions.</TooltipContent>
+                  </Tooltip>
+                  {user ? (
+                    <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-card/80 px-2 py-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-muted/60 text-foreground">
+                            <UserRound className="h-4 w-4" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>{user.name}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-10 w-10 rounded-xl"
+                            onClick={signOut}
+                            title="Sign out"
+                          >
+                            <LogOut className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Sign out</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  ) : null}
+                  {hideSidebar ? null : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-7 w-7 rounded-full lg:hidden" asChild>
+                          <Link to="/">
+                            <Menu className="h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Open modules</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              </div>
+              {actions ? (
+                <div className="mt-2 flex items-center gap-1.5 sm:hidden [&_button]:h-8 [&_button]:px-3 [&_button]:text-xs [&_a]:h-8 [&_a]:px-3 [&_a]:text-xs [&_svg]:h-3.5 [&_svg]:w-3.5">
+                  {actions}
+                </div>
+              ) : null}
             </div>
           </header>
 
-          <main className={cn("mx-auto w-full flex-1 px-4 sm:px-6", hidePageIntro ? "py-4" : "py-8", fluid ? "max-w-none" : "max-w-7xl")}>
+          <main className={cn("w-full min-w-0 flex-1 px-4 sm:px-6", hidePageIntro ? "py-4" : "py-8", fluid ? "max-w-none" : "max-w-full")}>
             {children}
           </main>
         </div>

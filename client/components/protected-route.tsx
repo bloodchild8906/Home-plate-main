@@ -1,8 +1,10 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
+import type { PermissionId } from "@shared/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SplashScreen } from "@/components/splash-screen";
 import { useAuth, type UserRole } from "@/lib/auth";
 
 function AccessDenied() {
@@ -31,27 +33,25 @@ function AccessDenied() {
 export function ProtectedRoute({
   children,
   allowedRoles,
+  requiredPermissions,
   fallback,
 }: PropsWithChildren<{
   allowedRoles?: UserRole[];
+  requiredPermissions?: PermissionId[];
   fallback?: ReactNode;
 }>) {
   const { isAuthenticated, isReady, hasAccess } = useAuth();
   const location = useLocation();
 
   if (!isReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
+    return <SplashScreen message="Verifying session..." />;
   }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (!hasAccess(allowedRoles)) {
+  if (!hasAccess(requiredPermissions?.length ? requiredPermissions : allowedRoles)) {
     return <>{fallback ?? <AccessDenied />}</>;
   }
 

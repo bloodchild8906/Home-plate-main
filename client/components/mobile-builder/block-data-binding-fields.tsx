@@ -23,6 +23,7 @@ type BlockDataBindingFieldsProps = {
   status?: BindingStatus;
   statusMessage?: string;
   onChange: (updater: (binding: BuilderBlockDataBinding) => BuilderBlockDataBinding) => void;
+  onUseEndpoint?: (endpointId: string) => string;
 };
 
 function getBindingSuggestions(
@@ -65,8 +66,10 @@ export function BlockDataBindingFields({
   status = "idle",
   statusMessage = "",
   onChange,
+  onUseEndpoint,
 }: BlockDataBindingFieldsProps) {
   const availableDataFunctions = apiFunctions.filter((item) => item.method === "GET");
+  const availableDataEndpoints = serverApiEndpoints.filter((item) => item.method === "GET");
   const selectedFunction = apiFunctions.find(
     (item) => item.id === block.dataBinding.functionId,
   ) ?? null;
@@ -106,6 +109,35 @@ export function BlockDataBindingFields({
 
         {block.dataBinding.sourceType === "api" ? (
           <>
+            <Field label="API endpoint">
+              <select
+                value={selectedEndpoint?.id ?? ""}
+                onChange={(event) => {
+                  const endpointId = event.target.value;
+                  if (!endpointId || !onUseEndpoint) {
+                    return;
+                  }
+
+                  const functionId = onUseEndpoint(endpointId);
+                  if (!functionId) {
+                    return;
+                  }
+
+                  onChange((binding) => ({
+                    ...binding,
+                    functionId,
+                  }));
+                }}
+                className="h-9 w-full border border-border/70 bg-background px-2 text-sm"
+              >
+                <option value="">Select an endpoint</option>
+                {availableDataEndpoints.map((endpoint) => (
+                  <option key={endpoint.id} value={endpoint.id}>
+                    {endpoint.name} ({endpoint.method} {endpoint.path})
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="API function">
               <select
                 value={block.dataBinding.functionId}
@@ -125,10 +157,10 @@ export function BlockDataBindingFields({
                 ))}
               </select>
             </Field>
-            {availableDataFunctions.length === 0 ? (
+            {availableDataEndpoints.length === 0 ? (
               <div className="border border-border/70 bg-background/80 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                Add a `GET` API function in the API tab first. Only safe read endpoints can be used
-                as block data sources.
+                Add a `GET` API endpoint in the catalog first. Read endpoints are required for block
+                data binding.
               </div>
             ) : null}
 

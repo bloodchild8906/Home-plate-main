@@ -20,6 +20,10 @@ import {
   DEFAULT_PLATFORM_THEME_PRESET_ID,
   UPLOADED_FONT_PRESET_ID,
 } from "@/lib/theme-presets";
+import {
+  createDefaultLoginBuilderConfig,
+  normalizeLoginBuilderConfig,
+} from "@/lib/login-builder";
 
 export type SiteBrand = SiteBrandConfig;
 
@@ -32,6 +36,13 @@ const DEFAULT_BRAND: SiteBrand = {
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
+  splashTitle: "Loading workspace...",
+  splashSubtitle: "Preparing your command center.",
+  splashBackgroundColor: "#0f172a",
+  splashSpinnerStyle: "ring",
+  splashSpinnerColor: "#ea580c",
+  splashSpinnerAccent: "#f59e0b",
+  loginBuilder: createDefaultLoginBuilderConfig(),
   themePresetId: DEFAULT_PLATFORM_THEME_PRESET_ID,
   fontPresetId: DEFAULT_FONT_PRESET_ID,
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
@@ -51,6 +62,20 @@ type BrandingContextValue = {
 
 const BrandingContext = createContext<BrandingContextValue | undefined>(undefined);
 
+function normalizeSpinnerStyle(value?: string): SiteBrand["splashSpinnerStyle"] {
+  if (
+    value === "dots" ||
+    value === "pulse" ||
+    value === "ring" ||
+    value === "bars" ||
+    value === "dual-ring" ||
+    value === "orbit"
+  ) {
+    return value;
+  }
+  return DEFAULT_BRAND.splashSpinnerStyle;
+}
+
 function normalizeBrand(value?: Partial<SiteBrand>) {
   const nextName = value?.name?.trim() || DEFAULT_BRAND.name;
   const nextLogo = value?.logo?.trim() || getInitials(nextName);
@@ -69,6 +94,19 @@ function normalizeBrand(value?: Partial<SiteBrand>) {
     primary: normalizeHex(value?.primary ?? DEFAULT_BRAND.primary),
     secondary: normalizeHex(value?.secondary ?? DEFAULT_BRAND.secondary),
     accent: normalizeHex(value?.accent ?? DEFAULT_BRAND.accent),
+    splashTitle: value?.splashTitle?.trim() || DEFAULT_BRAND.splashTitle,
+    splashSubtitle: value?.splashSubtitle?.trim() || DEFAULT_BRAND.splashSubtitle,
+    splashBackgroundColor: normalizeHex(
+      value?.splashBackgroundColor ?? DEFAULT_BRAND.splashBackgroundColor,
+    ),
+    splashSpinnerStyle: normalizeSpinnerStyle(value?.splashSpinnerStyle),
+    splashSpinnerColor: normalizeHex(
+      value?.splashSpinnerColor ?? DEFAULT_BRAND.splashSpinnerColor,
+    ),
+    splashSpinnerAccent: normalizeHex(
+      value?.splashSpinnerAccent ?? DEFAULT_BRAND.splashSpinnerAccent,
+    ),
+    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder),
     themePresetId: value?.themePresetId?.trim() || DEFAULT_BRAND.themePresetId,
     fontPresetId,
     fontFamily: resolveFontFamily({

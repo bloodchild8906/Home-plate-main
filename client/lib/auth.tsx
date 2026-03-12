@@ -5,7 +5,8 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { ApiResponse, AuthToken, Role, User } from "@shared/api";
+import type { ApiResponse, AuthToken, PermissionId, Role, User } from "@shared/api";
+import { DEFAULT_ACCESS_ROLES } from "@shared/access-control";
 
 export type UserRole = Role;
 export type AuthUser = User;
@@ -16,7 +17,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   signIn: (username: string, password: string) => Promise<AuthUser>;
   signOut: () => Promise<void>;
-  hasAccess: (allowedRoles?: UserRole[]) => boolean;
+  hasAccess: (required?: Array<UserRole | PermissionId>) => boolean;
 }
 
 const DEMO_USERS: Array<{
@@ -33,6 +34,9 @@ const DEMO_USERS: Array<{
       name: "Michael Brown",
       email: "michael@homeplate.app",
       role: "admin",
+      roleName: "Administrator",
+      roleColor: "#f97316",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "admin")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-03T09:00:00.000Z",
     },
@@ -46,6 +50,9 @@ const DEMO_USERS: Array<{
       name: "Ava Patel",
       email: "ava@homeplate.app",
       role: "designer",
+      roleName: "App Designer",
+      roleColor: "#0f766e",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "designer")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-04T09:00:00.000Z",
     },
@@ -59,6 +66,9 @@ const DEMO_USERS: Array<{
       name: "Jordan Kim",
       email: "jordan@homeplate.app",
       role: "operator",
+      roleName: "Store Operator",
+      roleColor: "#2563eb",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "operator")?.permissions ?? [],
       status: "Pending",
       createdAt: "2025-01-05T09:00:00.000Z",
     },
@@ -72,6 +82,9 @@ const DEMO_USERS: Array<{
       name: "Nina Cole",
       email: "nina@homeplate.app",
       role: "analyst",
+      roleName: "Analyst",
+      roleColor: "#7c3aed",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "analyst")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-06T09:00:00.000Z",
     },
@@ -147,12 +160,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
-  const hasAccess = (allowedRoles?: UserRole[]) => {
-    if (!allowedRoles || allowedRoles.length === 0) {
+  const hasAccess = (required?: Array<UserRole | PermissionId>) => {
+    if (!required || required.length === 0) {
       return true;
     }
 
-    return !!user && allowedRoles.includes(user.role);
+    if (!user) {
+      return false;
+    }
+
+    const expectsPermissions = required.some((value) => String(value).includes("."));
+    return expectsPermissions
+      ? required.every((permission) => user.permissions.includes(permission as PermissionId))
+      : required.includes(user.role);
   };
 
   return (

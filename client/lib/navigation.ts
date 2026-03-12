@@ -1,6 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Boxes,
+  GitBranchPlus,
   Gift,
   LockKeyhole,
   Palette,
@@ -9,6 +11,8 @@ import {
   UserCog,
   Users,
 } from "lucide-react";
+import { PERMISSIONS } from "@shared/access-control";
+import type { PermissionId } from "@shared/api";
 import type { UserRole } from "./auth";
 
 export interface AppRouteMeta {
@@ -19,6 +23,7 @@ export interface AppRouteMeta {
   category: "Design" | "Operations" | "Growth" | "Admin";
   icon: LucideIcon;
   allowedRoles: UserRole[];
+  requiredPermissions: PermissionId[];
   stat: string;
 }
 
@@ -38,7 +43,30 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Design",
     icon: Smartphone,
     allowedRoles: ["admin", "designer"],
+    requiredPermissions: [PERMISSIONS.builderManage],
     stat: "12 live screens",
+  },
+  {
+    path: "/block-builder",
+    title: "Block Builder",
+    description: "Compose reusable content blocks with properties, styles, and metadata presets.",
+    shortDescription: "Build and edit reusable block blueprints.",
+    category: "Design",
+    icon: Boxes,
+    allowedRoles: ["admin", "designer"],
+    requiredPermissions: [PERMISSIONS.builderManage],
+    stat: "Reusable block sets",
+  },
+  {
+    path: "/function-builder",
+    title: "Function Builder",
+    description: "Design a node-graph effect pipeline and generate executable CommonJS chains.",
+    shortDescription: "Chain effects in a visual node graph.",
+    category: "Design",
+    icon: GitBranchPlus,
+    allowedRoles: ["admin", "designer"],
+    requiredPermissions: [PERMISSIONS.builderManage],
+    stat: "Visual effect graph",
   },
   {
     path: "/menu-management",
@@ -48,6 +76,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Operations",
     icon: SquareMenu,
     allowedRoles: ["admin", "operator"],
+    requiredPermissions: [PERMISSIONS.menusManage],
     stat: "8 synced menus",
   },
   {
@@ -58,6 +87,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Growth",
     icon: Gift,
     allowedRoles: ["admin", "operator"],
+    requiredPermissions: [PERMISSIONS.rewardsManage],
     stat: "3 active programs",
   },
   {
@@ -68,6 +98,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Growth",
     icon: Users,
     allowedRoles: ["admin", "operator"],
+    requiredPermissions: [PERMISSIONS.membersManage],
     stat: "2.8k members",
   },
   {
@@ -78,6 +109,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Growth",
     icon: BarChart3,
     allowedRoles: ["admin", "analyst"],
+    requiredPermissions: [PERMISSIONS.analyticsView],
     stat: "18% growth",
   },
   {
@@ -88,6 +120,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Design",
     icon: Palette,
     allowedRoles: ["admin", "designer"],
+    requiredPermissions: [PERMISSIONS.brandingManage],
     stat: "4 brand kits",
   },
   {
@@ -98,6 +131,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Admin",
     icon: UserCog,
     allowedRoles: ["admin"],
+    requiredPermissions: [PERMISSIONS.usersManage],
     stat: "6 team seats",
   },
   {
@@ -108,6 +142,7 @@ export const APP_ROUTES: AppRouteMeta[] = [
     category: "Admin",
     icon: LockKeyhole,
     allowedRoles: ["admin"],
+    requiredPermissions: [PERMISSIONS.accessManage],
     stat: "4 active roles",
   },
 ];

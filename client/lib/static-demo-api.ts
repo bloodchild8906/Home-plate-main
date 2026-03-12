@@ -1,4 +1,5 @@
 import type {
+  AccessRole,
   AnalyticsSummary,
   ApiResponse,
   AuthToken,
@@ -13,6 +14,11 @@ import type {
   SiteBrandConfig,
   User,
 } from "@shared/api";
+import { DEFAULT_ACCESS_ROLES } from "@shared/access-control";
+import {
+  createDefaultLoginBuilderConfig,
+  normalizeLoginBuilderConfig,
+} from "@/lib/login-builder";
 
 const STORAGE_PREFIX = "homeplate:pages:";
 const SESSION_KEY = `${STORAGE_PREFIX}session-user-id`;
@@ -21,6 +27,8 @@ const REWARDS_KEY = `${STORAGE_PREFIX}rewards`;
 const MEMBERS_KEY = `${STORAGE_PREFIX}members`;
 const SITE_BRAND_KEY = `${STORAGE_PREFIX}site-brand`;
 const BUILDER_APPS_KEY = `${STORAGE_PREFIX}builder-apps`;
+const ACCESS_ROLES_KEY = `${STORAGE_PREFIX}access-roles`;
+const ACCOUNTS_KEY = `${STORAGE_PREFIX}accounts`;
 
 type DemoAccount = {
   password: string;
@@ -36,6 +44,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
       name: "Michael Brown",
       email: "michael@homeplate.app",
       role: "admin",
+      roleName: "Administrator",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "admin")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-03T09:00:00.000Z",
     },
@@ -48,6 +58,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
       name: "Ava Patel",
       email: "ava@homeplate.app",
       role: "designer",
+      roleName: "App Designer",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "designer")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-04T09:00:00.000Z",
     },
@@ -60,6 +72,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
       name: "Jordan Kim",
       email: "jordan@homeplate.app",
       role: "operator",
+      roleName: "Store Operator",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "operator")?.permissions ?? [],
       status: "Pending",
       createdAt: "2025-01-05T09:00:00.000Z",
     },
@@ -72,6 +86,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
       name: "Nina Cole",
       email: "nina@homeplate.app",
       role: "analyst",
+      roleName: "Analyst",
+      permissions: DEFAULT_ACCESS_ROLES.find((role) => role.id === "analyst")?.permissions ?? [],
       status: "Active",
       createdAt: "2025-01-06T09:00:00.000Z",
     },
@@ -87,6 +103,13 @@ const DEFAULT_SITE_BRAND: SiteBrandConfig = {
   primary: "#ea580c",
   secondary: "#0f172a",
   accent: "#f59e0b",
+  splashTitle: "Loading workspace...",
+  splashSubtitle: "Preparing your command center.",
+  splashBackgroundColor: "#0f172a",
+  splashSpinnerStyle: "ring",
+  splashSpinnerColor: "#ea580c",
+  splashSpinnerAccent: "#f59e0b",
+  loginBuilder: createDefaultLoginBuilderConfig(),
   themePresetId: "ember-control",
   fontPresetId: "manrope",
   fontFamily: '"Manrope", "Inter", ui-sans-serif, system-ui, sans-serif',
@@ -115,6 +138,21 @@ const SEEDED_MENUS: Menu[] = [
         description: "Fresh romaine lettuce with house-made dressing",
         price: 9.99,
         category: "Salads",
+      },
+    ],
+    specials: [
+      {
+        id: "special-1",
+        title: "Lunch Rush Combo",
+        description: "Signature Burger plus fries with a same-day promo price.",
+        itemId: "item-1",
+        bannerText: "Lunch rush",
+        promoCode: "LUNCH25",
+        specialPrice: 12.99,
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        active: true,
+        channels: ["qr", "text_code"],
       },
     ],
     createdAt: new Date().toISOString(),
@@ -176,6 +214,20 @@ const SEEDED_REWARDS: RewardProgram[] = [
         description: "Unlock priority reservation windows for peak seating.",
       },
     ],
+    pointGenerators: [
+      {
+        id: "generator-1",
+        name: "In-store welcome scan",
+        kind: "qr",
+        points: 50,
+        code: "WELCOME50",
+        payload: "homeplate://points/program-1/WELCOME50",
+        description: "Companion app QR used at the register for first-purchase welcome points.",
+        createdAt: "2026-03-11T09:00:00.000Z",
+        expiresAt: "2026-04-11T23:59:59.000Z",
+        redemptionCount: 14,
+      },
+    ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -184,23 +236,43 @@ const SEEDED_REWARDS: RewardProgram[] = [
 const SEEDED_MEMBERS: Member[] = [
   {
     id: "member-1",
+    username: "john.doe",
     email: "john@example.com",
     name: "John Doe",
+    status: "Active",
     phone: "555-1234",
     loyaltyPoints: 2500,
     tier: "Gold",
     joinDate: "2023-01-15",
     lastVisit: "2024-03-08",
+    favoriteLocation: "Downtown",
+    notes: "Prefers in-app specials and weekend offers.",
+    tags: ["vip", "weekday"],
+    marketingOptIn: true,
+    totalSpend: 1840,
+    visits: 32,
+    passwordSet: true,
+    companionAccessCode: "HP-JD-1024",
   },
   {
     id: "member-2",
+    username: "jane.smith",
     email: "jane@example.com",
     name: "Jane Smith",
+    status: "Pending",
     phone: "555-5678",
     loyaltyPoints: 1200,
     tier: "Silver",
     joinDate: "2023-06-20",
     lastVisit: "2024-03-05",
+    favoriteLocation: "Waterfront",
+    notes: "Needs onboarding follow-up for companion app.",
+    tags: ["new-app"],
+    marketingOptIn: false,
+    totalSpend: 620,
+    visits: 11,
+    passwordSet: true,
+    companionAccessCode: "HP-JS-8842",
   },
 ];
 
@@ -373,12 +445,31 @@ function setMembers(value: Member[]) {
   return writeStoredValue(MEMBERS_KEY, value);
 }
 
+function normalizeSiteBrand(value?: Partial<SiteBrandConfig>): SiteBrandConfig {
+  const spinnerStyle =
+    value?.splashSpinnerStyle === "dots" ||
+    value?.splashSpinnerStyle === "pulse" ||
+    value?.splashSpinnerStyle === "ring" ||
+    value?.splashSpinnerStyle === "bars" ||
+    value?.splashSpinnerStyle === "dual-ring" ||
+    value?.splashSpinnerStyle === "orbit"
+      ? value.splashSpinnerStyle
+      : DEFAULT_SITE_BRAND.splashSpinnerStyle;
+
+  return {
+    ...DEFAULT_SITE_BRAND,
+    ...value,
+    splashSpinnerStyle: spinnerStyle,
+    loginBuilder: normalizeLoginBuilderConfig(value?.loginBuilder),
+  };
+}
+
 function getSiteBrand() {
-  return readStoredValue(SITE_BRAND_KEY, DEFAULT_SITE_BRAND);
+  return normalizeSiteBrand(readStoredValue(SITE_BRAND_KEY, DEFAULT_SITE_BRAND));
 }
 
 function setSiteBrand(value: SiteBrandConfig) {
-  return writeStoredValue(SITE_BRAND_KEY, value);
+  return writeStoredValue(SITE_BRAND_KEY, normalizeSiteBrand(value));
 }
 
 function getBuilderApps() {
@@ -387,6 +478,52 @@ function getBuilderApps() {
 
 function setBuilderApps(value: BuilderPersistedApp[]) {
   return writeStoredValue(BUILDER_APPS_KEY, value);
+}
+
+function getAccessRoles() {
+  return readStoredValue(ACCESS_ROLES_KEY, DEFAULT_ACCESS_ROLES);
+}
+
+function setAccessRoles(value: AccessRole[]) {
+  return writeStoredValue(ACCESS_ROLES_KEY, value);
+}
+
+function decorateUser(user: User): User {
+  const role = getAccessRoles().find((entry) => entry.id === user.role);
+  return {
+    ...user,
+    roleName: role?.name ?? user.roleName ?? user.role,
+    permissions: role?.permissions ?? user.permissions ?? [],
+    roleColor: role?.color ?? user.roleColor,
+  };
+}
+
+function getAccounts() {
+  return readStoredValue(ACCOUNTS_KEY, DEMO_ACCOUNTS).map((account) => ({
+    ...account,
+    user: decorateUser(account.user),
+  }));
+}
+
+function setAccounts(value: DemoAccount[]) {
+  return writeStoredValue(ACCOUNTS_KEY, value);
+}
+
+function getUsers() {
+  return getAccounts().map((account) => decorateUser(account.user));
+}
+
+function setUsers(value: User[]) {
+  const accounts = getAccounts();
+  const nextAccounts = value.map((user) => {
+    const existing = accounts.find((account) => account.user.id === user.id);
+    return {
+      password: existing?.password ?? "changeme123!",
+      user: decorateUser(user),
+    };
+  });
+
+  return setAccounts(nextAccounts);
 }
 
 function dashboardKey(userKey: string) {
@@ -403,7 +540,7 @@ function setDashboardConfig(userKey: string, value: DashboardPreferencesConfig) 
 
 function getSessionUser() {
   const userId = window.localStorage.getItem(SESSION_KEY);
-  return DEMO_ACCOUNTS.find((account) => account.user.id === userId)?.user ?? null;
+  return getAccounts().find((account) => account.user.id === userId)?.user ?? null;
 }
 
 function setSessionUser(userId: string | null) {
@@ -495,33 +632,41 @@ function buildAnalyticsSummary(): AnalyticsSummary {
   const members = getMembers();
   const rewards = getRewards();
   const menuItems = menus.flatMap((menu) => menu.items);
+  const specials = menus.flatMap((menu) => menu.specials);
+  const pointGenerators = rewards.flatMap((program) => program.pointGenerators ?? []);
   const totalRevenue = menuItems.reduce((sum, item) => sum + item.price * 32, 0);
-  const totalRedemptions = rewards.reduce(
-    (count, program) => count + program.redemptions.length,
-    0,
-  );
+  const totalRedemptions = rewards.reduce((count, program) => count + program.redemptions.length, 0);
   const averageTransaction =
     menuItems.length > 0
       ? menuItems.reduce((sum, item) => sum + item.price, 0) / menuItems.length
       : 0;
+  const tierCounts = members.reduce<Record<string, number>>((summary, member) => {
+    summary[member.tier] = (summary[member.tier] ?? 0) + 1;
+    return summary;
+  }, {});
+  const locationSpend = members.reduce<Record<string, number>>((summary, member) => {
+    const location = member.favoriteLocation || "Unassigned";
+    summary[location] = (summary[location] ?? 0) + (member.totalSpend ?? 0);
+    return summary;
+  }, {});
 
   return {
     metrics: [
       {
-        label: "Total Revenue",
+        label: "Revenue Projection",
         value: `$${totalRevenue.toFixed(2)}`,
         change: 7.8,
         trend: "up",
       },
       {
-        label: "Active Members",
-        value: members.length.toLocaleString(),
+        label: "Member Lifetime Spend",
+        value: `$${members.reduce((sum, member) => sum + (member.totalSpend ?? 0), 0).toFixed(0)}`,
         change: 5.4,
         trend: "up",
       },
       {
-        label: "Points Redeemed",
-        value: String(totalRedemptions * 240),
+        label: "Open Point Codes",
+        value: String(pointGenerators.length),
         change: 1.2,
         trend: "up",
       },
@@ -537,15 +682,60 @@ function buildAnalyticsSummary(): AnalyticsSummary {
       value: Math.round(menu.items.reduce((sum, item) => sum + item.price * 18, 0)),
     })),
     memberGrowthData: [
-      { name: "Week 1", value: Math.max(10, Math.round(members.length * 0.25)) },
-      { name: "Week 2", value: Math.max(20, Math.round(members.length * 0.5)) },
-      { name: "Week 3", value: Math.max(30, Math.round(members.length * 0.75)) },
-      { name: "Week 4", value: Math.max(40, members.length) },
+      { name: "Jan", value: Math.max(10, Math.round(members.length * 0.25)) },
+      { name: "Feb", value: Math.max(20, Math.round(members.length * 0.5)) },
+      { name: "Mar", value: Math.max(30, Math.round(members.length * 0.75)) },
+      { name: "Apr", value: Math.max(40, members.length) },
     ],
     topItemsData: menuItems.slice(0, 5).map((item) => ({
       name: item.name,
       value: Math.round(item.price * 30),
     })),
+    channelMixData: [
+      { name: "QR", value: pointGenerators.filter((generator) => generator.kind === "qr").length || 1 },
+      { name: "Text", value: pointGenerators.filter((generator) => generator.kind === "text_code").length || 1 },
+      { name: "Scan Card", value: pointGenerators.filter((generator) => generator.kind === "scan_card").length || 1 },
+      { name: "Specials", value: specials.length || 1 },
+    ],
+    tierDistributionData: Object.entries(tierCounts).map(([name, value]) => ({ name, value })),
+    locationPerformanceData: Object.entries(locationSpend).map(([name, value]) => ({ name, value: Math.round(value) })),
+    activityFeed: [
+      {
+        id: "static-points",
+        title: "Point generators are available",
+        detail: `${pointGenerators.length} generators can be used from the static demo.`,
+        time: "Updated now",
+        category: "points",
+      },
+      {
+        id: "static-rewards",
+        title: "Reward redemptions are configured",
+        detail: `${totalRedemptions} redemption options are active across ${rewards.length} programs.`,
+        time: "Today",
+        category: "rewards",
+      },
+      {
+        id: "static-members",
+        title: "Member profiles include companion app fields",
+        detail: `${members.length} member records are available in the static workspace.`,
+        time: "Today",
+        category: "members",
+      },
+      {
+        id: "static-menus",
+        title: "Menus include specials",
+        detail: `${specials.length} special campaigns are attached to the static demo menus.`,
+        time: "Today",
+        category: "menus",
+      },
+      {
+        id: "static-access",
+        title: "Access roles are editable",
+        detail: `${getAccessRoles().length} roles are available in the static demo.`,
+        time: "Today",
+        category: "security",
+      },
+    ],
   };
 }
 
@@ -570,7 +760,7 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
   if (path === "/api/auth/login" && method === "POST") {
     const username = String(body.username ?? "").trim();
     const password = String(body.password ?? "");
-    const account = DEMO_ACCOUNTS.find(
+    const account = getAccounts().find(
       (entry) => entry.user.username === username && entry.password === password,
     );
 
@@ -580,7 +770,7 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
 
     setSessionUser(account.user.id);
     const token = `static-${account.user.id}-${Date.now()}`;
-    return apiSuccess<AuthToken>({ token, user: account.user });
+    return apiSuccess<AuthToken>({ token, user: decorateUser(account.user) });
   }
 
   if (path === "/api/auth/logout" && method === "POST") {
@@ -602,6 +792,7 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
       name: String(body.name ?? "").trim(),
       location: String(body.location ?? "").trim(),
       items: Array.isArray(body.items) ? (body.items as Menu["items"]) : [],
+      specials: Array.isArray(body.specials) ? (body.specials as Menu["specials"]) : [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -631,6 +822,7 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
       ...body,
       id: current.id,
       items: Array.isArray(body.items) ? (body.items as Menu["items"]) : current.items,
+      specials: Array.isArray(body.specials) ? (body.specials as Menu["specials"]) : current.specials,
       updatedAt: new Date().toISOString(),
     };
 
@@ -666,6 +858,9 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
       redemptions: Array.isArray(body.redemptions)
         ? (body.redemptions as RewardProgram["redemptions"])
         : [],
+      pointGenerators: Array.isArray(body.pointGenerators)
+        ? (body.pointGenerators as RewardProgram["pointGenerators"])
+        : [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -699,6 +894,9 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
       redemptions: Array.isArray(body.redemptions)
         ? (body.redemptions as RewardProgram["redemptions"])
         : current.redemptions,
+      pointGenerators: Array.isArray(body.pointGenerators)
+        ? (body.pointGenerators as RewardProgram["pointGenerators"])
+        : current.pointGenerators,
       updatedAt: new Date().toISOString(),
     };
 
@@ -715,6 +913,38 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
     if (!existing) return apiError(404, "Reward program not found");
     setRewards(programs.filter((entry) => entry.id !== segments[2]));
     return apiSuccess(existing);
+  }
+
+  if (segments[0] === "api" && segments[1] === "rewards" && segments[2] && segments[3] === "point-generators" && method === "POST") {
+    const authError = requireRole(user, ["admin", "operator"]);
+    if (authError) return authError;
+
+    const programs = getRewards();
+    const current = programs.find((entry) => entry.id === segments[2]);
+    if (!current) return apiError(404, "Reward program not found");
+
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const generator = {
+      id: createId("generator"),
+      name: String(body.name ?? "").trim() || "Generated points",
+      kind: String(body.kind ?? "qr") as RewardProgram["pointGenerators"][number]["kind"],
+      points: Number(body.points ?? 0),
+      code,
+      payload: `homeplate://points/${current.id}/${code}`,
+      description: String(body.description ?? "").trim() || "Static demo point generator.",
+      expiresAt: String(body.expiresAt ?? "").trim() || undefined,
+      createdAt: new Date().toISOString(),
+      redemptionCount: 0,
+    };
+
+    const nextProgram: RewardProgram = {
+      ...current,
+      pointGenerators: [generator, ...(current.pointGenerators ?? [])],
+      updatedAt: new Date().toISOString(),
+    };
+
+    setRewards(programs.map((entry) => (entry.id === current.id ? nextProgram : entry)));
+    return apiSuccess(generator, 201);
   }
 
   if (path === "/api/members" && method === "GET") {
@@ -739,12 +969,20 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
 
     const member: Member = {
       id: createId("member"),
+      username: String(body.username ?? "").trim(),
       email: String(body.email ?? "").trim(),
       name: String(body.name ?? "").trim(),
+      status: "Active",
       phone: String(body.phone ?? "").trim() || undefined,
       loyaltyPoints: 0,
       tier: "Bronze",
       joinDate: new Date().toISOString().split("T")[0],
+      tags: [],
+      marketingOptIn: false,
+      totalSpend: 0,
+      visits: 0,
+      passwordSet: Boolean(String(body.password ?? "").trim()),
+      companionAccessCode: String(body.companionAccessCode ?? "").trim() || undefined,
     };
 
     setMembers([...getMembers(), member]);
@@ -808,7 +1046,144 @@ async function handleMockRequest(input: RequestInfo | URL, init?: RequestInit) {
 
   if (path === "/api/users" && method === "GET") {
     const authError = requireRole(user, ["admin"]);
-    return authError ?? apiSuccess(DEMO_ACCOUNTS.map((entry) => entry.user));
+    return authError ?? apiSuccess(getUsers());
+  }
+
+  if (path === "/api/users" && method === "POST") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const accounts = getAccounts();
+    const newUser: User = decorateUser({
+      id: createId("user"),
+      username: String(body.username ?? "").trim(),
+      name: String(body.name ?? "").trim(),
+      email: String(body.email ?? "").trim(),
+      role: String(body.role ?? "operator").trim(),
+      roleName: "",
+      permissions: [],
+      status: String(body.status ?? "Pending") as User["status"],
+      phone: String(body.phone ?? "").trim() || undefined,
+      title: String(body.title ?? "").trim() || undefined,
+      department: String(body.department ?? "").trim() || undefined,
+      notes: String(body.notes ?? "").trim() || undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    setAccounts([
+      ...accounts,
+      {
+        password: String(body.password ?? "").trim() || "changeme123!",
+        user: newUser,
+      },
+    ]);
+
+    return apiSuccess(newUser, 201);
+  }
+
+  if (segments[0] === "api" && segments[1] === "users" && segments[2] && method === "GET") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const found = getUsers().find((entry) => entry.id === segments[2]);
+    return found ? apiSuccess(found) : apiError(404, "User not found");
+  }
+
+  if (segments[0] === "api" && segments[1] === "users" && segments[2] && method === "PUT") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const accounts = getAccounts();
+    const current = accounts.find((entry) => entry.user.id === segments[2]);
+    if (!current) return apiError(404, "User not found");
+
+    const nextUser = decorateUser({
+      ...current.user,
+      ...body,
+      id: current.user.id,
+      updatedAt: new Date().toISOString(),
+    });
+
+    setAccounts(accounts.map((entry) => (
+      entry.user.id === current.user.id
+        ? {
+            password: String(body.password ?? "").trim() || entry.password,
+            user: nextUser,
+          }
+        : entry
+    )));
+
+    return apiSuccess(nextUser);
+  }
+
+  if (segments[0] === "api" && segments[1] === "users" && segments[2] && method === "DELETE") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const accounts = getAccounts();
+    const current = accounts.find((entry) => entry.user.id === segments[2]);
+    if (!current) return apiError(404, "User not found");
+
+    setAccounts(accounts.filter((entry) => entry.user.id !== current.user.id));
+    return apiSuccess(current.user);
+  }
+
+  if (path === "/api/access-control/roles" && method === "GET") {
+    const authError = requireRole(user, ["admin"]);
+    return authError ?? apiSuccess(getAccessRoles());
+  }
+
+  if (path === "/api/access-control/roles" && method === "POST") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const role: AccessRole = {
+      id: String(body.name ?? createId("role")).toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      name: String(body.name ?? "").trim(),
+      description: String(body.description ?? "").trim(),
+      color: String(body.color ?? "#2563eb").trim(),
+      permissions: Array.isArray(body.permissions) ? (body.permissions as AccessRole["permissions"]) : [],
+      isSystem: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setAccessRoles([...getAccessRoles(), role]);
+    return apiSuccess(role, 201);
+  }
+
+  if (segments[0] === "api" && segments[1] === "access-control" && segments[2] === "roles" && segments[3] && method === "PUT") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const roles = getAccessRoles();
+    const current = roles.find((entry) => entry.id === segments[3]);
+    if (!current) return apiError(404, "Role not found");
+    if (current.isSystem) return apiError(400, "System roles are read-only");
+
+    const nextRole: AccessRole = {
+      ...current,
+      ...body,
+      id: current.id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setAccessRoles(roles.map((entry) => (entry.id === current.id ? nextRole : entry)));
+    return apiSuccess(nextRole);
+  }
+
+  if (segments[0] === "api" && segments[1] === "access-control" && segments[2] === "roles" && segments[3] && method === "DELETE") {
+    const authError = requireRole(user, ["admin"]);
+    if (authError) return authError;
+
+    const roles = getAccessRoles();
+    const current = roles.find((entry) => entry.id === segments[3]);
+    if (!current) return apiError(404, "Role not found");
+    if (current.isSystem) return apiError(400, "System roles are read-only");
+
+    setAccessRoles(roles.filter((entry) => entry.id !== current.id));
+    return apiSuccess(current);
   }
 
   if (path === "/api/site-config/brand" && method === "GET") {

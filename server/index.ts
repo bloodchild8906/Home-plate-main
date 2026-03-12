@@ -2,7 +2,7 @@ import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
-import { authenticate, requireAuthenticated, requireRole } from "./middleware/rbac";
+import { authenticate, requireAuthenticated, requirePermission } from "./middleware/rbac";
 import * as authController from "./routes/auth";
 import * as menusController from "./routes/menus";
 import * as rewardsController from "./routes/rewards";
@@ -14,10 +14,14 @@ import * as builderApiCatalogController from "./routes/builder-api-catalog";
 import * as siteConfigController from "./routes/site-config";
 import * as builderAppsController from "./routes/builder-apps";
 import * as usersController from "./routes/users";
+import * as accessControlController from "./routes/access-control";
 import { initializeDatabase } from "./lib/database";
+import { PERMISSIONS } from "../shared/access-control";
 
 export function createServer() {
-  initializeDatabase();
+  void initializeDatabase().catch((error) => {
+    console.error("Failed to initialize database:", error);
+  });
   const app = express();
 
   // Middleware
@@ -42,49 +46,66 @@ export function createServer() {
   app.get("/api/demo", handleDemo);
 
   // ============ MENU ROUTES ============
-  app.get("/api/menus", requireRole("admin", "operator"), menusController.getMenus);
-  app.get("/api/menus/:id", requireRole("admin", "operator"), menusController.getMenuById);
-  app.post("/api/menus", requireRole("admin", "operator"), menusController.createMenu);
-  app.put("/api/menus/:id", requireRole("admin", "operator"), menusController.updateMenu);
-  app.delete("/api/menus/:id", requireRole("admin"), menusController.deleteMenu);
+  app.get("/api/menus", requirePermission(PERMISSIONS.menusManage), menusController.getMenus);
+  app.get("/api/menus/:id", requirePermission(PERMISSIONS.menusManage), menusController.getMenuById);
+  app.post("/api/menus", requirePermission(PERMISSIONS.menusManage), menusController.createMenu);
+  app.put("/api/menus/:id", requirePermission(PERMISSIONS.menusManage), menusController.updateMenu);
+  app.delete("/api/menus/:id", requirePermission(PERMISSIONS.menusManage), menusController.deleteMenu);
 
   // ============ REWARD ROUTES ============
-  app.get("/api/rewards", requireRole("admin", "operator"), rewardsController.getRewardPrograms);
-  app.get("/api/rewards/:id", requireRole("admin", "operator"), rewardsController.getRewardProgramById);
-  app.post("/api/rewards", requireRole("admin", "operator"), rewardsController.createRewardProgram);
-  app.put("/api/rewards/:id", requireRole("admin", "operator"), rewardsController.updateRewardProgram);
-  app.delete("/api/rewards/:id", requireRole("admin", "operator"), rewardsController.deleteRewardProgram);
+  app.get("/api/rewards", requirePermission(PERMISSIONS.rewardsManage), rewardsController.getRewardPrograms);
+  app.get("/api/rewards/:id", requirePermission(PERMISSIONS.rewardsManage), rewardsController.getRewardProgramById);
+  app.post("/api/rewards", requirePermission(PERMISSIONS.rewardsManage), rewardsController.createRewardProgram);
+  app.put("/api/rewards/:id", requirePermission(PERMISSIONS.rewardsManage), rewardsController.updateRewardProgram);
+  app.delete("/api/rewards/:id", requirePermission(PERMISSIONS.rewardsManage), rewardsController.deleteRewardProgram);
+  app.post(
+    "/api/rewards/:id/point-generators",
+    requirePermission(PERMISSIONS.rewardCodesGenerate),
+    rewardsController.createPointGenerator,
+  );
 
   // ============ MEMBER ROUTES ============
-  app.get("/api/members", requireRole("admin", "operator"), membersController.getMembers);
-  app.get("/api/members/:id", requireRole("admin", "operator"), membersController.getMemberById);
-  app.post("/api/members", requireRole("admin", "operator"), membersController.createMember);
-  app.put("/api/members/:id", requireRole("admin", "operator"), membersController.updateMember);
-  app.delete("/api/members/:id", requireRole("admin"), membersController.deleteMember);
-  app.post("/api/members/:id/points", requireRole("admin", "operator"), membersController.addPoints);
+  app.get("/api/members", requirePermission(PERMISSIONS.membersManage), membersController.getMembers);
+  app.get("/api/members/tags", requirePermission(PERMISSIONS.membersManage), membersController.getMemberTags);
+  app.get("/api/members/:id", requirePermission(PERMISSIONS.membersManage), membersController.getMemberById);
+  app.post("/api/members", requirePermission(PERMISSIONS.membersManage), membersController.createMember);
+  app.put("/api/members/tags", requirePermission(PERMISSIONS.membersManage), membersController.updateMemberTags);
+  app.put("/api/members/:id", requirePermission(PERMISSIONS.membersManage), membersController.updateMember);
+  app.delete("/api/members/:id", requirePermission(PERMISSIONS.membersManage), membersController.deleteMember);
+  app.post("/api/members/:id/points", requirePermission(PERMISSIONS.membersManage), membersController.addPoints);
 
   // ============ BRANDING ROUTES ============
-  app.get("/api/branding", requireRole("admin", "designer"), brandingController.getBrandingConfigs);
-  app.get("/api/branding/:id", requireRole("admin", "designer"), brandingController.getBrandingConfigById);
-  app.post("/api/branding", requireRole("admin", "designer"), brandingController.createBrandingConfig);
-  app.put("/api/branding/:id", requireRole("admin", "designer"), brandingController.updateBrandingConfig);
-  app.delete("/api/branding/:id", requireRole("admin", "designer"), brandingController.deleteBrandingConfig);
-  app.get("/api/users", requireRole("admin"), usersController.getUsers);
+  app.get("/api/branding", requirePermission(PERMISSIONS.brandingManage), brandingController.getBrandingConfigs);
+  app.get("/api/branding/:id", requirePermission(PERMISSIONS.brandingManage), brandingController.getBrandingConfigById);
+  app.post("/api/branding", requirePermission(PERMISSIONS.brandingManage), brandingController.createBrandingConfig);
+  app.put("/api/branding/:id", requirePermission(PERMISSIONS.brandingManage), brandingController.updateBrandingConfig);
+  app.delete("/api/branding/:id", requirePermission(PERMISSIONS.brandingManage), brandingController.deleteBrandingConfig);
+  app.get("/api/users", requirePermission(PERMISSIONS.usersManage), usersController.getUsers);
+  app.get("/api/users/:id", requirePermission(PERMISSIONS.usersManage), usersController.getUser);
+  app.post("/api/users", requirePermission(PERMISSIONS.usersManage), usersController.createUser);
+  app.put("/api/users/:id", requirePermission(PERMISSIONS.usersManage), usersController.updateUser);
+  app.delete("/api/users/:id", requirePermission(PERMISSIONS.usersManage), usersController.deleteUser);
+  app.get("/api/access-control/roles", requirePermission(PERMISSIONS.accessManage), accessControlController.getRoles);
+  app.get("/api/access-control/module-requirements", requirePermission(PERMISSIONS.accessManage), accessControlController.getModuleRequirements);
+  app.post("/api/access-control/roles", requirePermission(PERMISSIONS.accessManage), accessControlController.createRole);
+  app.put("/api/access-control/module-requirements", requirePermission(PERMISSIONS.accessManage), accessControlController.updateModuleRequirements);
+  app.put("/api/access-control/roles/:id", requirePermission(PERMISSIONS.accessManage), accessControlController.updateRole);
+  app.delete("/api/access-control/roles/:id", requirePermission(PERMISSIONS.accessManage), accessControlController.removeRole);
   app.get("/api/site-config/brand", siteConfigController.getSiteBrand);
-  app.put("/api/site-config/brand", requireRole("admin", "designer"), siteConfigController.updateSiteBrand);
+  app.put("/api/site-config/brand", requirePermission(PERMISSIONS.brandingManage), siteConfigController.updateSiteBrand);
   app.get("/api/site-config/dashboard/:userKey", requireAuthenticated, siteConfigController.getDashboardConfig);
   app.put("/api/site-config/dashboard/:userKey", requireAuthenticated, siteConfigController.updateDashboardConfig);
 
   // ============ ANALYTICS ROUTES ============
-  app.get("/api/analytics/summary", requireRole("admin", "analyst"), analyticsController.getAnalyticsSummary);
+  app.get("/api/analytics/summary", requirePermission(PERMISSIONS.analyticsView), analyticsController.getAnalyticsSummary);
 
   // ============ BUILDER APP ROUTES ============
-  app.get("/api/builder/api-endpoints", requireRole("admin", "designer"), builderApiCatalogController.getBuilderApiEndpoints);
-  app.get("/api/builder/apps", requireRole("admin", "designer"), builderAppsController.getBuilderApps);
-  app.put("/api/builder/apps", requireRole("admin", "designer"), builderAppsController.replaceBuilderApps);
+  app.get("/api/builder/api-endpoints", requirePermission(PERMISSIONS.builderManage), builderApiCatalogController.getBuilderApiEndpoints);
+  app.get("/api/builder/apps", requirePermission(PERMISSIONS.builderManage), builderAppsController.getBuilderApps);
+  app.put("/api/builder/apps", requirePermission(PERMISSIONS.builderManage), builderAppsController.replaceBuilderApps);
 
   // ============ BUILDER EXPORT ROUTES ============
-  app.post("/api/builder/export-maui", requireRole("admin", "designer"), builderExportController.exportMauiProject);
+  app.post("/api/builder/export-maui", requirePermission(PERMISSIONS.builderManage), builderExportController.exportMauiProject);
 
   app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (

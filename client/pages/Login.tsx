@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { getUserRoleLabel } from "@/lib/access-control";
 import { demoCredentials, useAuth } from "@/lib/auth";
 import { useBranding } from "@/lib/branding";
-import { ROLE_LABELS } from "@/lib/navigation";
 
 export default function Login() {
   const [username, setUsername] = useState("admin");
@@ -36,7 +36,7 @@ export default function Login() {
 
     try {
       const user = await signIn(username, password);
-      toast.success(`Signed in as ${ROLE_LABELS[user.role]}`);
+      toast.success(`Signed in as ${getUserRoleLabel(user)}`);
       navigate(redirectTo, { replace: true });
     } catch {
       toast.error("Invalid credentials. Use one of the demo accounts below.");
@@ -158,7 +158,7 @@ export default function Login() {
                       className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-black/30"
                     >
                       <div>
-                        <div className="font-bold text-white">{ROLE_LABELS[account.user.role]}</div>
+                        <div className="font-bold text-white">{getUserRoleLabel(account.user)}</div>
                         <div className="text-xs text-slate-400">
                           {account.username} / {account.password}
                         </div>

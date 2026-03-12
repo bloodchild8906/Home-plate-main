@@ -17,6 +17,7 @@ import {
   Sparkles,
   WandSparkles,
 } from "lucide-react";
+import { PERMISSIONS } from "@shared/access-control";
 import { AppShell } from "@/components/app-shell";
 import { DashboardCustomizerSheet } from "@/components/dashboard/dashboard-customizer-sheet";
 import {
@@ -28,8 +29,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
+import { describePermissions, getUserRoleLabel } from "@/lib/access-control";
 import { useBranding } from "@/lib/branding";
-import { APP_ROUTES, ROLE_LABELS, type AppRouteMeta } from "@/lib/navigation";
+import { APP_ROUTES, type AppRouteMeta } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
 const CATEGORY_ORDER: AppRouteMeta["category"][] = [
@@ -188,9 +190,9 @@ export default function Index() {
   const { user, hasAccess } = useAuth();
   const { brand } = useBranding();
   const accessibleRoutes = APP_ROUTES.filter((route) =>
-    hasAccess(route.allowedRoles),
+    hasAccess(route.requiredPermissions),
   );
-  const lockedRoutes = APP_ROUTES.filter((route) => !hasAccess(route.allowedRoles));
+  const lockedRoutes = APP_ROUTES.filter((route) => !hasAccess(route.requiredPermissions));
   const availableFocusPaths =
     accessibleRoutes.length > 0
       ? accessibleRoutes.map((route) => route.path)
@@ -234,7 +236,7 @@ export default function Index() {
       detail: `Dashboard focus is pinned to ${focusRoute.title} for ${brand.name}.`,
     },
     {
-      title: `${user ? ROLE_LABELS[user.role] : "Guest"} policies are active`,
+      title: `${user ? getUserRoleLabel(user) : "Guest"} policies are active`,
       detail: `${accessibleRoutes.length} modules are live for the current role and ${lockedRoutes.length} remain guarded.`,
     },
     {
@@ -457,7 +459,7 @@ export default function Index() {
                       Current role
                     </div>
                     <div className="mt-2 text-xl font-black">
-                      {user ? ROLE_LABELS[user.role] : "Guest"}
+                      {user ? getUserRoleLabel(user) : "Guest"}
                     </div>
                   </div>
                 </div>
@@ -510,7 +512,7 @@ export default function Index() {
               />
               <KpiStat
                 label="Role"
-                value={user ? ROLE_LABELS[user.role] : "Guest"}
+                value={user ? getUserRoleLabel(user) : "Guest"}
                 helper="Pulled from the local auth session"
                 compact={compact}
               />
@@ -646,7 +648,7 @@ export default function Index() {
                         <Lock className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        Restricted to {route.allowedRoles.join(", ")}
+                        Requires {describePermissions(route.requiredPermissions)}
                       </div>
                     </div>
                     <Badge variant="outline" className="rounded-full px-3 py-1">
@@ -741,7 +743,7 @@ export default function Index() {
             >
               {moduleBoardRoutes.map((route) => {
                 const Icon = route.icon;
-                const canAccess = hasAccess(route.allowedRoles);
+                const canAccess = hasAccess(route.requiredPermissions);
 
                 return (
                   <Card
@@ -800,7 +802,7 @@ export default function Index() {
                           </Button>
                         ) : (
                           <div className="rounded-2xl border border-dashed border-border/70 px-4 py-3 text-sm text-muted-foreground">
-                            Restricted to {route.allowedRoles.join(", ")}.
+                            Requires {describePermissions(route.requiredPermissions)}.
                           </div>
                         )}
                       </div>
@@ -822,7 +824,7 @@ export default function Index() {
       description={`A configurable ${brand.name} dashboard for app design, restaurant operations, loyalty growth, and reporting.`}
       actions={
         <>
-          {hasAccess(["admin"]) ? (
+          {hasAccess([PERMISSIONS.accessManage]) ? (
             <Button variant="outline" asChild>
               <Link to="/access-control">
                 <ShieldCheck className="mr-2 h-4 w-4" />

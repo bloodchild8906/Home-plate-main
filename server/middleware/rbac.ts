@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { type Role, type User } from "@shared/api";
+import { type PermissionId, type Role, type User } from "@shared/api";
 import { getUserBySessionToken } from "../lib/database";
 
 export const SESSION_COOKIE_NAME = "homeplate_session";
@@ -37,7 +37,7 @@ function getSessionToken(req: Request) {
   return getCookieValue(req, SESSION_COOKIE_NAME);
 }
 
-export const authenticate = (req: Request, _res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, _res: Response, next: NextFunction) => {
   const token = getSessionToken(req);
 
   if (!token) {
@@ -45,7 +45,7 @@ export const authenticate = (req: Request, _res: Response, next: NextFunction) =
     return next();
   }
 
-  req.user = getUserBySessionToken(token) ?? undefined;
+  req.user = (await getUserBySessionToken(token)) ?? undefined;
   next();
 };
 
@@ -80,21 +80,37 @@ export const requireRole = (...roles: Role[]) => {
   };
 };
 
-export const rolePermissions: Record<Role, string[]> = {
-  admin: [
-    "manage_menus",
-    "manage_rewards",
-    "manage_members",
-    "manage_branding",
-    "manage_users",
-    "view_analytics",
-    "manage_builder",
-  ],
-  designer: ["manage_branding", "manage_builder"],
-  operator: ["manage_menus", "manage_rewards", "manage_members"],
-  analyst: ["view_analytics"],
+export const requirePermission = (...permissions: PermissionId[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+      });
+    }
+
+    const hasAllPermissions = permissions.every((permission) =>
+      req.user?.permissions.includes(permission),
+    );
+
+    if (!hasAllPermissions) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden: Missing required permission",
+      });
+    }
+
+    next();
+  };
 };
 
-export const hasPermission = (role: Role, permission: string): boolean => {
-  return rolePermissions[role]?.includes(permission) ?? false;
+export const hasPermission = (
+  subject: Pick<User, "permissions"> | Role,
+  permission: PermissionId,
+): boolean => {
+  if (typeof subject === "string") {
+    return false;
+  }
+
+  return subject.permissions.includes(permission);
 };

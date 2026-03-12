@@ -64,15 +64,18 @@ export const exportMauiProject: RequestHandler = async (req, res) => {
 
 async function writeProjectFiles(outputPath: string, projectName: string, app: BuilderExportApp) {
   const csprojPath = path.join(outputPath, `${projectName}.csproj`);
+  const indexHtmlPath = path.join(outputPath, "wwwroot", "index.html");
   const mainLayoutPath = path.join(outputPath, "Components", "Layout", "MainLayout.razor");
   const mainLayoutCssPath = path.join(outputPath, "Components", "Layout", "MainLayout.razor.css");
+  const pagesPath = path.join(outputPath, "Components", "Pages");
   const homePath = path.join(outputPath, "Components", "Pages", "Home.razor");
+  const preparedApp = await prepareAppAssets(outputPath, app);
 
   const csproj = await fs.readFile(csprojPath, "utf8");
   const nextCsproj = csproj
     .replace(
       /<ApplicationTitle>.*?<\/ApplicationTitle>/,
-      `<ApplicationTitle>${escapeXml(app.name)}</ApplicationTitle>`,
+      `<ApplicationTitle>${escapeXml(preparedApp.name)}</ApplicationTitle>`,
     )
     .replace(
       /<RootNamespace>.*?<\/RootNamespace>/,
@@ -84,9 +87,31 @@ async function writeProjectFiles(outputPath: string, projectName: string, app: B
     );
 
   await fs.writeFile(csprojPath, nextCsproj, "utf8");
-  await fs.writeFile(mainLayoutPath, generateMainLayout(app), "utf8");
-  await fs.writeFile(mainLayoutCssPath, generateMainLayoutCss(app), "utf8");
-  await fs.writeFile(homePath, generateHomeRazor(app), "utf8");
+  await fs.writeFile(mainLayoutPath, generateMainLayout(preparedApp), "utf8");
+  await fs.writeFile(mainLayoutCssPath, generateMainLayoutCss(preparedApp), "utf8");
+  await fs.writeFile(homePath, generateHomeRazor(preparedApp), "utf8");
+  await injectExportedAssets(indexHtmlPath);
+
+  await fs.mkdir(pagesPath, { recursive: true });
+  const existingPages = await fs.readdir(pagesPath);
+  for (const file of existingPages) {
+    if (file.endsWith(".razor") && file !== "Home.razor") {
+      await fs.rm(path.join(pagesPath, file), { force: true });
+    }
+  }
+
+  const routeSlugs = createUniqueRouteSlugs(preparedApp.pages.map((page) => page.name));
+  await Promise.all(
+    preparedApp.pages.map((page, index) => {
+      const pageFileName = `${index + 1}-${sanitizeProjectName(page.name)}Page.razor`;
+      const pageRoute = `/app-${routeSlugs[index]}`;
+      return fs.writeFile(
+        path.join(pagesPath, pageFileName),
+        generatePageEntryRazor(pageRoute, page.id),
+        "utf8",
+      );
+    }),
+  );
 }
 
 function sanitizeProjectName(name: string) {
@@ -98,6 +123,269 @@ function sanitizeProjectName(name: string) {
     .join("");
 
   return pascal || "HomePlateExport";
+}
+
+function slugifyRouteSegment(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "page";
+}
+
+function createUniqueRouteSlugs(pageNames: string[]) {
+  const used = new Map<string, number>();
+
+  return pageNames.map((name, index) => {
+    const base = slugifyRouteSegment(name || `page-${index + 1}`);
+    const seen = used.get(base) ?? 0;
+    used.set(base, seen + 1);
+    return seen === 0 ? base : `${base}-${seen + 1}`;
+  });
+}
+
+function generatePageEntryRazor(route: string, pageId: string) {
+  return `@page "${route}"
+
+<Home InitialPageId="${escapeXml(pageId)}" />
+`;
+}
+
+async function injectExportedAssets(indexHtmlPath: string) {
+  const indexHtml = await fs.readFile(indexHtmlPath, "utf8");
+  const withCss = indexHtml.includes("exported-assets/app.custom.css")
+    ? indexHtml
+    : indexHtml.replace(
+      "</head>",
+      `  <link rel="stylesheet" href="exported-assets/app.custom.css" />\n</head>`,
+    );
+  const withScript = withCss.includes("exported-assets/app.custom.js")
+    ? withCss
+    : withCss.replace(
+      "</body>",
+      `  <script src="exported-assets/app.custom.js"></script>\n</body>`,
+    );
+  await fs.writeFile(indexHtmlPath, withScript, "utf8");
+}
+
+async function prepareAppAssets(outputPath: string, app: BuilderExportApp): Promise<BuilderExportApp> {
+  const assetsDir = path.join(outputPath, "wwwroot", "exported-assets");
+  const exportedAssetDir = path.join(assetsDir, "assets");
+  await fs.mkdir(exportedAssetDir, { recursive: true });
+
+  const assetSources = collectAssetSources(app);
+  const sourceToTarget = new Map<string, string>();
+  let assetIndex = 1;
+
+  for (const source of assetSources) {
+    const materialized = await materializeAsset(source, exportedAssetDir, assetIndex);
+    if (!materialized) {
+      continue;
+    }
+
+    sourceToTarget.set(source, `/exported-assets/assets/${materialized.fileName}`);
+    assetIndex += 1;
+  }
+
+  const nextApp = replaceAssetReferences(app, sourceToTarget);
+  const customCss = nextApp.brand.customCss?.trim() || "/* No custom CSS provided */";
+  const customJs = `window.__HOMEPLATE_EXPORT__ = ${JSON.stringify(
+    {
+      appName: nextApp.name,
+      pageCount: nextApp.pages.length,
+      pages: nextApp.pages.map((page) => ({
+        id: page.id,
+        name: page.name,
+        blockCount: page.blocks.length,
+      })),
+    },
+    null,
+    2,
+  )};`;
+
+  await fs.writeFile(path.join(assetsDir, "app.custom.css"), `${customCss}\n`, "utf8");
+  await fs.writeFile(path.join(assetsDir, "app.custom.js"), `${customJs}\n`, "utf8");
+  await fs.writeFile(
+    path.join(assetsDir, "asset-manifest.json"),
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        assets: Array.from(sourceToTarget.entries()).map(([source, target]) => ({
+          source,
+          target,
+        })),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  return nextApp;
+}
+
+function collectAssetSources(app: BuilderExportApp) {
+  const sources = new Set<string>();
+
+  const collect = (value: unknown) => {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      if (trimmed.startsWith("data:") || isRemoteAssetUrl(trimmed)) {
+        sources.add(trimmed);
+      }
+
+      for (const match of trimmed.matchAll(/url\((['"]?)(.*?)\1\)/g)) {
+        const candidate = match[2]?.trim();
+        if (candidate && (candidate.startsWith("data:") || isRemoteAssetUrl(candidate))) {
+          sources.add(candidate);
+        }
+      }
+
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        collect(entry);
+      }
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      for (const entry of Object.values(value as Record<string, unknown>)) {
+        collect(entry);
+      }
+    }
+  };
+
+  collect(app);
+  return Array.from(sources);
+}
+
+function replaceAssetReferences(app: BuilderExportApp, sourceToTarget: Map<string, string>): BuilderExportApp {
+  if (sourceToTarget.size === 0) {
+    return app;
+  }
+
+  const replaceString = (value: string) => {
+    let nextValue = value;
+    for (const [source, target] of sourceToTarget.entries()) {
+      if (nextValue.includes(source)) {
+        nextValue = nextValue.split(source).join(target);
+      }
+    }
+    return nextValue;
+  };
+
+  const visit = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      return replaceString(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((entry) => visit(entry));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, visit(entry)]),
+      );
+    }
+
+    return value;
+  };
+
+  return visit(app) as BuilderExportApp;
+}
+
+function isRemoteAssetUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function inferAssetExtensionFromMime(mimeType: string) {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes("png")) return "png";
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
+  if (normalized.includes("webp")) return "webp";
+  if (normalized.includes("gif")) return "gif";
+  if (normalized.includes("svg")) return "svg";
+  if (normalized.includes("css")) return "css";
+  if (normalized.includes("javascript")) return "js";
+  if (normalized.includes("woff2")) return "woff2";
+  if (normalized.includes("woff")) return "woff";
+  if (normalized.includes("ttf")) return "ttf";
+  if (normalized.includes("otf")) return "otf";
+  if (normalized.includes("json")) return "json";
+  return "bin";
+}
+
+function inferAssetExtensionFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const extension = path.extname(parsed.pathname).replace(".", "").toLowerCase();
+    if (extension) {
+      return extension;
+    }
+  } catch {
+    return "bin";
+  }
+
+  return "bin";
+}
+
+function parseDataUri(dataUri: string) {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUri);
+  if (!match) {
+    return null;
+  }
+
+  const mimeType = match[1] || "application/octet-stream";
+  const encoded = match[3] ?? "";
+  const isBase64 = Boolean(match[2]);
+  const buffer = isBase64
+    ? Buffer.from(encoded, "base64")
+    : Buffer.from(decodeURIComponent(encoded), "utf8");
+
+  return {
+    buffer,
+    extension: inferAssetExtensionFromMime(mimeType),
+  };
+}
+
+async function materializeAsset(source: string, outputDir: string, index: number) {
+  if (source.startsWith("data:")) {
+    const parsed = parseDataUri(source);
+    if (!parsed) {
+      return null;
+    }
+
+    const fileName = `asset-${String(index).padStart(3, "0")}.${parsed.extension}`;
+    await fs.writeFile(path.join(outputDir, fileName), parsed.buffer);
+    return { fileName };
+  }
+
+  if (!isRemoteAssetUrl(source)) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(source);
+    if (!response.ok) {
+      return null;
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const extension = inferAssetExtensionFromMime(response.headers.get("content-type") ?? "") || inferAssetExtensionFromUrl(source);
+    const fileName = `asset-${String(index).padStart(3, "0")}.${extension}`;
+    await fs.writeFile(path.join(outputDir, fileName), Buffer.from(arrayBuffer));
+    return { fileName };
+  } catch {
+    return null;
+  }
 }
 
 function escapeCSharp(value: string) {
@@ -227,6 +515,32 @@ function generateHomeRazor(app: BuilderExportApp) {
   const brandLogo = app.brand.logoImage
     ? `<div class="brand-logo brand-logo-image"><img src="${escapeXml(app.brand.logoImage)}" alt="${escapeXml(`${app.brand.appName} logo`)}" /></div>`
     : `<div class="brand-logo">${escapeXml(app.brand.logo)}</div>`;
+  const routeSlugs = createUniqueRouteSlugs(app.pages.map((page) => page.name));
+  const routeEntries = app.pages
+    .map(
+      (page, index) =>
+        `        { "${escapeCSharp(page.name)}", "/app-${routeSlugs[index]}" },`,
+    )
+    .join("\n");
+  const keywordRouteMap = new Map<string, string>();
+  const registerKeyword = (keyword: string, matcher: (value: string) => boolean) => {
+    const index = app.pages.findIndex((page) => matcher(page.name.toLowerCase()));
+    if (index >= 0) {
+      keywordRouteMap.set(keyword, `/app-${routeSlugs[index]}`);
+    }
+  };
+  registerKeyword("menu", (name) => name.includes("menu"));
+  registerKeyword("loyalty", (name) => name.includes("loyalty") || name.includes("reward") || name.includes("earn"));
+  registerKeyword("rewards", (name) => name.includes("reward") || name.includes("redeem"));
+  registerKeyword("authentication", (name) => name.includes("auth") || name.includes("login"));
+  registerKeyword("auth", (name) => name.includes("auth") || name.includes("login"));
+  registerKeyword("register", (name) => name.includes("register") || name.includes("auth") || name.includes("signup"));
+  const keywordEntries = Array.from(keywordRouteMap.entries())
+    .map(
+      ([keyword, route]) =>
+        `        { "${escapeCSharp(keyword)}", "${escapeCSharp(route)}" },`,
+    )
+    .join("\n");
   const pagesCode = app.pages
     .map(
       (page) => `new PageModel
@@ -260,6 +574,8 @@ ${page.blocks
     .join(",\n");
 
   return `@page "/"
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Rendering
 
 <div class="phone-shell">
     <div class="phone-status"></div>
@@ -291,6 +607,15 @@ ${page.blocks
 </div>
 
 @code {
+    [Parameter]
+    public string? InitialPageId { get; set; }
+
+    private Dictionary<string, string> RouteMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+${routeEntries}
+${keywordEntries}
+    };
+
     private List<PageModel> Pages = new()
     {
 ${pagesCode}
@@ -300,7 +625,28 @@ ${pagesCode}
 
     protected override void OnInitialized()
     {
-        CurrentPage = Pages[0];
+        if (Pages.Count == 0)
+        {
+            CurrentPage = new PageModel();
+            return;
+        }
+
+        CurrentPage = Pages.Find((page) => page.Id == InitialPageId) ?? Pages[0];
+    }
+
+    private string ResolveRoute(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return "#";
+        }
+
+        if (RouteMap.TryGetValue(label.Trim(), out var route))
+        {
+            return route;
+        }
+
+        return "#";
     }
 
     private static void ApplyBlockAttributes(RenderTreeBuilder builder, ref int seq, BlockModel block, string baseClass)
@@ -363,8 +709,9 @@ ${pagesCode}
                 ApplyBlockAttributes(builder, ref seq, block, "block links-grid");
                 foreach (var item in block.Items)
                 {
-                    builder.OpenElement(seq++, "div");
+                    builder.OpenElement(seq++, "a");
                     builder.AddAttribute(seq++, "class", "link-chip");
+                    builder.AddAttribute(seq++, "href", ResolveRoute(item));
                     builder.AddContent(seq++, item);
                     builder.CloseElement();
                 }
@@ -428,6 +775,10 @@ ${pagesCode}
                 builder.OpenElement(seq++, "button");
                 builder.AddAttribute(seq++, "class", "primary-button");
                 builder.AddContent(seq++, "Sign in");
+                builder.CloseElement();
+                builder.OpenElement(seq++, "button");
+                builder.AddAttribute(seq++, "class", "primary-button secondary");
+                builder.AddContent(seq++, "Register");
                 builder.CloseElement();
                 builder.CloseElement();
                 break;
@@ -580,6 +931,12 @@ ${pagesCode}
         background: ${app.brand.primary};
         color: white;
     }
+    .primary-button.secondary {
+        margin-top: 8px;
+        background: transparent;
+        border: 1px solid ${app.brand.primary};
+        color: ${app.brand.primary};
+    }
     .links-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -591,6 +948,11 @@ ${pagesCode}
         background: ${app.brand.surface};
         font-size: 13px;
         font-weight: 700;
+    }
+    .link-chip {
+        display: block;
+        text-decoration: none;
+        color: inherit;
     }
     .scan-card {
         background: linear-gradient(135deg, ${app.brand.primary}, ${app.brand.accent});

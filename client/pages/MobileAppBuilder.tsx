@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Copy, Pencil, Plus, Rocket, Sparkles, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { BrandMark } from "@/components/brand-mark";
+import { MauiExportProgressDialog } from "@/components/maui-export-progress-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   APP_TEMPLATES,
+  type BuilderAppModel,
   type BuilderAppTemplateId,
   useBuilderStore,
 } from "@/lib/builder-store";
@@ -37,10 +39,124 @@ export default function MobileAppBuilder() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [publishingAppId, setPublishingAppId] = useState("");
+  const publishProgressTimerRef = useRef<number | null>(null);
+  const [publishModal, setPublishModal] = useState<{
+    open: boolean;
+    appName: string;
+    progress: number;
+    message: string;
+    status: "idle" | "running" | "complete" | "error";
+  }>({
+    open: false,
+    appName: "",
+    progress: 0,
+    message: "",
+    status: "idle",
+  });
   const { apps, createApp, deleteApp, duplicateApp, updateApp } = useBuilderStore();
   const publishedApps = apps.filter((app) => app.published).length;
   const liveApps = apps.filter((app) => app.live).length;
   const totalPages = apps.reduce((sum, app) => sum + app.pages.length, 0);
+
+  useEffect(() => {
+    return () => {
+      if (publishProgressTimerRef.current) {
+        window.clearInterval(publishProgressTimerRef.current);
+      }
+    };
+  }, []);
+
+  const startPublishProgress = (appName: string) => {
+    if (publishProgressTimerRef.current) {
+      window.clearInterval(publishProgressTimerRef.current);
+    }
+
+    setPublishModal({
+      open: true,
+      appName,
+      progress: 8,
+      message: "Preparing MAUI project scaffold...",
+      status: "running",
+    });
+
+    publishProgressTimerRef.current = window.setInterval(() => {
+      setPublishModal((current) => {
+        if (!current.open || current.status !== "running") {
+          return current;
+        }
+
+        const step = current.progress < 44 ? 9 : current.progress < 76 ? 5 : 2;
+        const progress = Math.min(92, current.progress + step);
+        const message =
+          progress < 36
+            ? "Preparing MAUI project scaffold..."
+            : progress < 70
+              ? "Exporting pages, assets, and scripts..."
+              : "Finalizing project files...";
+
+        return { ...current, progress, message };
+      });
+    }, 260);
+  };
+
+  const completePublishProgress = (message: string, status: "complete" | "error") => {
+    if (publishProgressTimerRef.current) {
+      window.clearInterval(publishProgressTimerRef.current);
+      publishProgressTimerRef.current = null;
+    }
+
+    setPublishModal((current) => ({
+      ...current,
+      progress: status === "complete" ? 100 : current.progress,
+      message,
+      status,
+    }));
+
+    window.setTimeout(() => {
+      setPublishModal((current) => ({
+        ...current,
+        open: false,
+        status: "idle",
+      }));
+    }, status === "complete" ? 900 : 500);
+  };
+
+  const publishApp = async (app: BuilderAppModel) => {
+    if (app.published) {
+      updateApp(app.id, (current) => ({
+        ...current,
+        published: false,
+        live: false,
+      }));
+      toast.success(`${app.name} unpublished`);
+      return;
+    }
+
+    setPublishingAppId(app.id);
+    startPublishProgress(app.name);
+
+    try {
+      const data = await exportMauiHybridProject(app);
+      updateApp(app.id, (current) => ({
+        ...current,
+        published: true,
+        live: current.live,
+      }));
+      completePublishProgress("MAUI export complete.", "complete");
+      toast.success(
+        `${app.name} published as a .NET MAUI Blazor Hybrid app at ${data.outputPath}`,
+      );
+    } catch (error) {
+      completePublishProgress("Export failed.", "error");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to publish .NET MAUI Blazor Hybrid app",
+      );
+    } finally {
+      setPublishingAppId("");
+    }
+  };
 
   return (
     <AppShell
@@ -83,23 +199,25 @@ export default function MobileAppBuilder() {
         </section>
 
         <Card className="border-border/60 bg-card/90 shadow-xl">
-        <CardContent className="p-0">
-          <Table>
+        <CardContent className="space-y-4 p-0">
+          <div className="hidden lg:block">
+          <div className="rounded-[1.6rem] border border-border/60 bg-background/40 p-1">
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
-                <TableHead>App</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Published</TableHead>
-                <TableHead>Pages</TableHead>
-                <TableHead>Domain</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead className="text-right">Controls</TableHead>
+                <TableHead className="whitespace-nowrap">App</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="whitespace-nowrap">Published</TableHead>
+                <TableHead className="whitespace-nowrap">Pages</TableHead>
+                <TableHead className="whitespace-nowrap">Domain</TableHead>
+                <TableHead className="whitespace-nowrap">Updated</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Controls</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {apps.map((app) => (
                 <TableRow key={app.id}>
-                  <TableCell>
+                  <TableCell className="min-w-[260px]">
                     <div className="flex items-center gap-3">
                       <BrandMark
                         image={app.brand.logoImage}
@@ -116,20 +234,20 @@ export default function MobileAppBuilder() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <Badge variant={app.live ? "default" : "outline"}>
                       {app.live ? "Live" : "Offline"}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <Badge variant={app.published ? "default" : "secondary"}>
                       {app.published ? "Published" : "Draft"}
                     </Badge>
                   </TableCell>
-                  <TableCell>{app.pages.length}</TableCell>
-                  <TableCell>{app.brand.domain}</TableCell>
-                  <TableCell>{new Date(app.updatedAt).toLocaleDateString()}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="whitespace-nowrap">{app.pages.length}</TableCell>
+                  <TableCell className="whitespace-nowrap">{app.brand.domain}</TableCell>
+                  <TableCell className="whitespace-nowrap">{new Date(app.updatedAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">
                     <div className="flex justify-end gap-2">
                       <Button asChild size="sm" variant="outline">
                         <Link to={`/builder/${app.id}`}>
@@ -152,38 +270,8 @@ export default function MobileAppBuilder() {
                         size="sm"
                         variant={app.published ? "secondary" : "default"}
                         disabled={STATIC_RUNTIME || publishingAppId === app.id}
-                        onClick={async () => {
-                          if (app.published) {
-                            updateApp(app.id, (current) => ({
-                              ...current,
-                              published: false,
-                              live: false,
-                            }));
-                            toast.success(`${app.name} unpublished`);
-                            return;
-                          }
-
-                          setPublishingAppId(app.id);
-
-                          try {
-                            const data = await exportMauiHybridProject(app);
-                            updateApp(app.id, (current) => ({
-                              ...current,
-                              published: true,
-                              live: current.live,
-                            }));
-                            toast.success(
-                              `${app.name} published as a .NET MAUI Blazor Hybrid app at ${data.outputPath}`,
-                            );
-                          } catch (error) {
-                            toast.error(
-                              error instanceof Error
-                                ? error.message
-                                : "Failed to publish .NET MAUI Blazor Hybrid app",
-                            );
-                          } finally {
-                            setPublishingAppId("");
-                          }
+                        onClick={() => {
+                          void publishApp(app);
                         }}
                       >
                         <Rocket className="mr-2 h-4 w-4" />
@@ -205,9 +293,104 @@ export default function MobileAppBuilder() {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </div>
+
+          <div className="space-y-3 p-4 lg:hidden">
+            {apps.map((app) => (
+              <div key={`mobile-${app.id}`} className="rounded-2xl border border-border/60 bg-background/80 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <BrandMark
+                      image={app.brand.logoImage}
+                      text={app.brand.logo}
+                      label={`${app.brand.appName} logo`}
+                      primary={app.brand.primary}
+                      accent={app.brand.accent}
+                      className="h-10 w-10"
+                      imageClassName="object-contain bg-white p-1"
+                    />
+                    <div>
+                      <div className="font-bold">{app.name}</div>
+                      <div className="text-xs text-muted-foreground">{app.brand.appName}</div>
+                    </div>
+                  </div>
+                  <Badge variant={app.live ? "default" : "outline"}>
+                    {app.live ? "Live" : "Offline"}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge variant={app.published ? "default" : "secondary"}>
+                    {app.published ? "Published" : "Draft"}
+                  </Badge>
+                  <Badge variant="outline">{app.pages.length} pages</Badge>
+                  <Badge variant="outline">{new Date(app.updatedAt).toLocaleDateString()}</Badge>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">{app.brand.domain}</div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link to={`/builder/${app.id}`}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </Link>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const id = duplicateApp(app.id);
+                      if (id) navigate(`/builder/${id}`);
+                    }}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Duplicate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={app.published ? "secondary" : "default"}
+                    disabled={STATIC_RUNTIME || publishingAppId === app.id}
+                    onClick={() => {
+                      void publishApp(app);
+                    }}
+                  >
+                    <Rocket className="mr-2 h-4 w-4" />
+                    {STATIC_RUNTIME
+                      ? "Publish requires server mode"
+                      : publishingAppId === app.id
+                        ? "Publishing..."
+                        : app.published
+                          ? "Unpublish"
+                          : "Publish"}
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => deleteApp(app.id)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
         </Card>
       </div>
+      <MauiExportProgressDialog
+        open={publishModal.open}
+        appName={publishModal.appName}
+        progress={publishModal.progress}
+        message={publishModal.message}
+        status={publishModal.status === "complete" ? "complete" : publishModal.status === "error" ? "error" : "running"}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && publishModal.status !== "running") {
+            setPublishModal((current) => ({
+              ...current,
+              open: false,
+              status: "idle",
+            }));
+          }
+        }}
+      />
     </AppShell>
   );
 }

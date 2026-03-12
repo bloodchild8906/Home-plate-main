@@ -16,6 +16,43 @@ function resolveDashboardConfigKey(req: Parameters<RequestHandler>[0]) {
   return `homeplate_dashboard_preferences:${req.user?.email ?? req.user?.role ?? "guest"}`;
 }
 
+const loginBuilderSchema = z.object({
+  layout: z.enum(["split", "stacked"]).optional().default("split"),
+  heroWidth: z.coerce.number().int().min(35).max(70).optional().default(58),
+  cardRadius: z.coerce.number().int().min(16).max(44).optional().default(32),
+  heroPanelOpacity: z.coerce.number().int().min(4).max(24).optional().default(8),
+  authPanelOpacity: z.coerce.number().int().min(45).max(90).optional().default(70),
+  featureColumns: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().default(3),
+  leftBlocks: z.array(
+    z.enum([
+      "badge",
+      "brand",
+      "headline",
+      "description",
+      "featureTiles",
+      "loginTitle",
+      "loginHint",
+      "loginForm",
+      "demoAccounts",
+      "footer",
+    ]),
+  ).optional().default(["badge", "brand", "headline", "description", "featureTiles"]),
+  rightBlocks: z.array(
+    z.enum([
+      "badge",
+      "brand",
+      "headline",
+      "description",
+      "featureTiles",
+      "loginTitle",
+      "loginHint",
+      "loginForm",
+      "demoAccounts",
+      "footer",
+    ]),
+  ).optional().default(["loginTitle", "loginHint", "loginForm", "demoAccounts", "footer"]),
+});
+
 const siteBrandSchema = z.object({
   name: z.string().trim().min(1),
   tagline: z.string().trim().min(1),
@@ -25,6 +62,30 @@ const siteBrandSchema = z.object({
   primary: z.string().trim().min(4),
   secondary: z.string().trim().min(4),
   accent: z.string().trim().min(4),
+  splashTitle: z.string().trim().min(1).optional().default("Loading workspace..."),
+  splashSubtitle: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .default("Preparing your command center."),
+  splashBackgroundColor: z.string().trim().min(4).optional().default("#0f172a"),
+  splashSpinnerStyle: z
+    .enum(["ring", "dots", "pulse", "bars", "dual-ring", "orbit"])
+    .optional()
+    .default("ring"),
+  splashSpinnerColor: z.string().trim().min(4).optional().default("#ea580c"),
+  splashSpinnerAccent: z.string().trim().min(4).optional().default("#f59e0b"),
+  loginBuilder: loginBuilderSchema.optional().default({
+    layout: "split",
+    heroWidth: 58,
+    cardRadius: 32,
+    heroPanelOpacity: 8,
+    authPanelOpacity: 70,
+    featureColumns: 3,
+    leftBlocks: ["badge", "brand", "headline", "description", "featureTiles"],
+    rightBlocks: ["loginTitle", "loginHint", "loginForm", "demoAccounts", "footer"],
+  }),
   themePresetId: z.string().trim().min(1),
   fontPresetId: z.string().trim().min(1),
   fontFamily: z.string().trim().min(1),
@@ -65,16 +126,16 @@ const dashboardPreferencesSchema = z.object({
   ),
 });
 
-export const getSiteBrand: RequestHandler = (_req, res) => {
+export const getSiteBrand: RequestHandler = async (_req, res) => {
   const response: ApiResponse<SiteBrandConfig> = {
     success: true,
-    data: getSiteBrandConfig(),
+    data: await getSiteBrandConfig(),
   };
 
   res.status(200).json(response);
 };
 
-export const updateSiteBrand: RequestHandler = (req, res) => {
+export const updateSiteBrand: RequestHandler = async (req, res) => {
   const parsed = siteBrandSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -84,14 +145,14 @@ export const updateSiteBrand: RequestHandler = (req, res) => {
     });
   }
 
-  const nextBrand = setSiteBrandConfig(parsed.data as SiteBrandConfig);
+  const nextBrand = await setSiteBrandConfig(parsed.data as SiteBrandConfig);
   res.status(200).json({
     success: true,
     data: nextBrand,
   } satisfies ApiResponse<SiteBrandConfig>);
 };
 
-export const getDashboardConfig: RequestHandler = (req, res) => {
+export const getDashboardConfig: RequestHandler = async (req, res) => {
   const userKey = req.params.userKey?.trim();
 
   if (!userKey || !req.user) {
@@ -110,11 +171,11 @@ export const getDashboardConfig: RequestHandler = (req, res) => {
 
   res.status(200).json({
     success: true,
-    data: getDashboardPreferences(userKey),
+    data: await getDashboardPreferences(userKey),
   } satisfies ApiResponse<DashboardPreferencesConfig | null>);
 };
 
-export const updateDashboardConfig: RequestHandler = (req, res) => {
+export const updateDashboardConfig: RequestHandler = async (req, res) => {
   const userKey = req.params.userKey?.trim();
 
   if (!userKey || !req.user) {
@@ -139,7 +200,7 @@ export const updateDashboardConfig: RequestHandler = (req, res) => {
     });
   }
 
-  const nextConfig = setDashboardPreferences(
+  const nextConfig = await setDashboardPreferences(
     userKey,
     parsed.data as DashboardPreferencesConfig,
   );

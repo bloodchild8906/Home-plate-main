@@ -43,10 +43,10 @@ function getCookieValue(cookieHeader: string | undefined, cookieName: string) {
   return "";
 }
 
-export const login: RequestHandler = (req, res) => {
+export const login: RequestHandler = async (req, res) => {
   const username = String(req.body?.username ?? "").trim();
   const password = String(req.body?.password ?? "");
-  const user = authenticateUser(username, password);
+  const user = await authenticateUser(username, password);
 
   if (!user) {
     return res.status(401).json({
@@ -55,7 +55,7 @@ export const login: RequestHandler = (req, res) => {
     } satisfies ApiResponse<AuthToken>);
   }
 
-  const session = createAuthSession(user.id);
+  const session = await createAuthSession(user.id);
   setSessionCookie(res, session.token);
 
   res.status(200).json({
@@ -74,7 +74,7 @@ export const getSessionUser: RequestHandler = (req, res) => {
   } satisfies ApiResponse<User | null>);
 };
 
-export const logout: RequestHandler = (req, res) => {
+export const logout: RequestHandler = async (req, res) => {
   const cookieToken = getCookieValue(req.headers.cookie, SESSION_COOKIE_NAME);
   const headerToken = req.headers.authorization?.startsWith("Bearer ")
     ? req.headers.authorization.slice(7).trim()
@@ -82,7 +82,7 @@ export const logout: RequestHandler = (req, res) => {
   const token = cookieToken || headerToken;
 
   if (token) {
-    deleteAuthSession(token);
+    await deleteAuthSession(token);
   }
 
   clearSessionCookie(res);

@@ -12,9 +12,57 @@ export interface DemoResponse {
 }
 
 // ============ RBAC ============
-export type Role = "admin" | "designer" | "operator" | "analyst";
+export type Role = string;
 
-export type UserStatus = "Active" | "Pending";
+export type PermissionId =
+  | "dashboard.view"
+  | "builder.manage"
+  | "menus.manage"
+  | "menus.specials.manage"
+  | "rewards.manage"
+  | "rewards.codes.generate"
+  | "members.manage"
+  | "members.credentials.manage"
+  | "analytics.view"
+  | "branding.manage"
+  | "users.manage"
+  | "access.manage";
+
+export interface PermissionDefinition {
+  id: PermissionId;
+  label: string;
+  description: string;
+  category: "Workspace" | "Operations" | "Growth" | "Identity" | "Admin";
+}
+
+export interface AccessRole {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  permissions: PermissionId[];
+  isSystem: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AccessRoleInput {
+  name: string;
+  description: string;
+  color: string;
+  permissions: PermissionId[];
+}
+
+export interface AccessModuleRequirement {
+  path: string;
+  title: string;
+  description: string;
+  requiredPermissions: PermissionId[];
+  requirementNotes: string;
+  updatedAt: string;
+}
+
+export type UserStatus = "Active" | "Pending" | "Suspended";
 
 export interface User {
   id: string;
@@ -22,8 +70,32 @@ export interface User {
   email: string;
   name: string;
   role: Role;
+  roleName: string;
+  roleColor?: string;
+  permissions: PermissionId[];
   status: UserStatus;
+  phone?: string;
+  title?: string;
+  department?: string;
+  notes?: string;
+  avatar?: string;
+  lastLoginAt?: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface UserUpsertInput {
+  username: string;
+  email: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  phone?: string;
+  title?: string;
+  department?: string;
+  notes?: string;
+  avatar?: string;
+  password?: string;
 }
 
 export interface AuthToken {
@@ -39,6 +111,26 @@ export interface MenuItem {
   price: number;
   category: string;
   image?: string;
+  featured?: boolean;
+  available?: boolean;
+  specialPrice?: number;
+  specialLabel?: string;
+}
+
+export type MenuSpecialChannel = "qr" | "text_code" | "scan_card";
+
+export interface MenuSpecial {
+  id: string;
+  title: string;
+  description: string;
+  itemId?: string;
+  bannerText: string;
+  promoCode: string;
+  specialPrice?: number;
+  startDate: string;
+  endDate: string;
+  active: boolean;
+  channels: MenuSpecialChannel[];
 }
 
 export interface Menu {
@@ -46,8 +138,16 @@ export interface Menu {
   name: string;
   location: string;
   items: MenuItem[];
+  specials: MenuSpecial[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MenuUpsertInput {
+  name: string;
+  location: string;
+  items?: MenuItem[];
+  specials?: MenuSpecial[];
 }
 
 // ============ Rewards ============
@@ -75,20 +175,92 @@ export interface RewardProgram {
   pointsPerDollar: number;
   tiers: RewardTier[];
   redemptions: RewardRedemptionOption[];
+  pointGenerators: RewardPointGenerator[];
   createdAt: string;
   updatedAt: string;
 }
 
+export type RewardPointGeneratorKind = "qr" | "text_code" | "scan_card";
+
+export interface RewardPointGenerator {
+  id: string;
+  name: string;
+  kind: RewardPointGeneratorKind;
+  points: number;
+  code: string;
+  payload: string;
+  description: string;
+  expiresAt?: string;
+  createdAt: string;
+  redemptionCount: number;
+}
+
+export interface RewardPointGeneratorInput {
+  name: string;
+  kind: RewardPointGeneratorKind;
+  points: number;
+  description: string;
+  expiresAt?: string;
+}
+
 // ============ Members ============
+export type MemberStatus = "Active" | "Pending" | "Suspended";
+
 export interface Member {
   id: string;
+  username: string;
   email: string;
   name: string;
+  status: MemberStatus;
   phone?: string;
   loyaltyPoints: number;
   tier: string;
   joinDate: string;
   lastVisit?: string;
+  favoriteLocation?: string;
+  address?: string;
+  dateOfBirth?: string;
+  notes?: string;
+  tags: string[];
+  marketingOptIn: boolean;
+  totalSpend: number;
+  visits: number;
+  avatar?: string;
+  passwordSet: boolean;
+  passwordUpdatedAt?: string;
+  companionAccessCode?: string;
+}
+
+export interface MemberTagDefinition {
+  id: string;
+  label: string;
+  color: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemberUpsertInput {
+  username: string;
+  email: string;
+  name: string;
+  status: MemberStatus;
+  phone?: string;
+  loyaltyPoints?: number;
+  tier?: string;
+  joinDate?: string;
+  lastVisit?: string;
+  favoriteLocation?: string;
+  address?: string;
+  dateOfBirth?: string;
+  notes?: string;
+  tags?: string[];
+  marketingOptIn?: boolean;
+  totalSpend?: number;
+  visits?: number;
+  avatar?: string;
+  password?: string;
+  companionAccessCode?: string;
 }
 
 // ============ Branding/Whitelabeling ============
@@ -104,6 +276,29 @@ export interface BrandingConfig {
   fontFamily: "inter" | "poppins" | "playfair";
 }
 
+export type LoginBuilderBlockId =
+  | "badge"
+  | "brand"
+  | "headline"
+  | "description"
+  | "featureTiles"
+  | "loginTitle"
+  | "loginHint"
+  | "loginForm"
+  | "demoAccounts"
+  | "footer";
+
+export interface LoginBuilderConfig {
+  layout: "split" | "stacked";
+  heroWidth: number;
+  cardRadius: number;
+  heroPanelOpacity: number;
+  authPanelOpacity: number;
+  featureColumns: 1 | 2 | 3;
+  leftBlocks: LoginBuilderBlockId[];
+  rightBlocks: LoginBuilderBlockId[];
+}
+
 export interface SiteBrandConfig {
   name: string;
   tagline: string;
@@ -113,6 +308,13 @@ export interface SiteBrandConfig {
   primary: string;
   secondary: string;
   accent: string;
+  splashTitle: string;
+  splashSubtitle: string;
+  splashBackgroundColor: string;
+  splashSpinnerStyle: "ring" | "dots" | "pulse" | "bars" | "dual-ring" | "orbit";
+  splashSpinnerColor: string;
+  splashSpinnerAccent: string;
+  loginBuilder: LoginBuilderConfig;
   themePresetId: string;
   fontPresetId: string;
   fontFamily: string;
@@ -156,11 +358,23 @@ export interface ChartDataPoint {
   value: number;
 }
 
+export interface ActivityFeedItem {
+  id: string;
+  title: string;
+  detail: string;
+  time: string;
+  category: "points" | "members" | "rewards" | "menus" | "security";
+}
+
 export interface AnalyticsSummary {
   metrics: MetricCard[];
   revenueData: ChartDataPoint[];
   memberGrowthData: ChartDataPoint[];
   topItemsData: ChartDataPoint[];
+  channelMixData: ChartDataPoint[];
+  tierDistributionData: ChartDataPoint[];
+  locationPerformanceData: ChartDataPoint[];
+  activityFeed: ActivityFeedItem[];
 }
 
 // ============ API Responses ============
@@ -374,4 +588,5 @@ export interface BuilderMauiExportRequest {
 export interface BuilderMauiExportResponse {
   projectName: string;
   outputPath: string;
-  template: "maui-blazor"
+  template: "maui-blazor";
+}
